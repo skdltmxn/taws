@@ -1,0 +1,15 @@
+{
+  "name": "default",
+  "colors": {
+    "primary": "#7D56F4",
+    "secondary": "#6244C5",
+    "error": "#FF0000",
+    "success": "#3FB950",
+    "warning": "#F4BD2D",
+    "info": "#3794FF",
+    "text": "#FFFFFF",
+    "sub_text": "#888888",
+    "border": "#888888",
+    "header_bg": "#1a1a2e"
+  }
+}

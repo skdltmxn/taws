@@ -1,0 +1,15 @@
+{
+  "name": "solarized-dark",
+  "colors": {
+    "primary": "#268BD2",
+    "secondary": "#073642",
+    "error": "#DC322F",
+    "success": "#859900",
+    "warning": "#B58900",
+    "info": "#2AA198",
+    "text": "#839496",
+    "sub_text": "#586E75",
+    "border": "#586E75",
+    "header_bg": "#002B36"
+  }
+}

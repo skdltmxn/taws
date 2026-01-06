@@ -1,0 +1,15 @@
+{
+  "name": "nord",
+  "colors": {
+    "primary": "#88C0D0",
+    "secondary": "#5E81AC",
+    "error": "#BF616A",
+    "success": "#A3BE8C",
+    "warning": "#EBCB8B",
+    "info": "#81A1C1",
+    "text": "#ECEFF4",
+    "sub_text": "#4C566A",
+    "border": "#4C566A",
+    "header_bg": "#2E3440"
+  }
+}

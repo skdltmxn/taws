@@ -1,0 +1,15 @@
+{
+  "name": "catppuccin-frappe",
+  "colors": {
+    "primary": "#8caaee",
+    "secondary": "#51576d",
+    "error": "#e78284",
+    "success": "#a6d189",
+    "warning": "#e5c890",
+    "info": "#85c1dc",
+    "text": "#c6d0f5",
+    "sub_text": "#a5adce",
+    "border": "#737994",
+    "header_bg": "#292c3c"
+  }
+}

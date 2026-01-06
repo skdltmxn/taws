@@ -1,0 +1,15 @@
+{
+  "name": "gruvbox",
+  "colors": {
+    "primary": "#FABD2F",
+    "secondary": "#D79921",
+    "error": "#FB4934",
+    "success": "#B8BB26",
+    "warning": "#FE8019",
+    "info": "#83A598",
+    "text": "#EBDBB2",
+    "sub_text": "#928374",
+    "border": "#504945",
+    "header_bg": "#282828"
+  }
+}
