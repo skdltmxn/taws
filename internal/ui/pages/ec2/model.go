@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/skdltmxn/taws/internal/app"
@@ -18,6 +19,15 @@ type ViewState int
 const (
 	ViewList ViewState = iota
 	ViewDetail
+	ViewConfirm
+)
+
+type ConfirmAction int
+
+const (
+	ActionNone ConfirmAction = iota
+	ActionStop
+	ActionTerminate
 )
 
 type Model struct {
@@ -36,6 +46,11 @@ type Model struct {
 	actionMsg    string
 	width        int
 	height       int
+
+	confirmAction    ConfirmAction
+	confirmInput     textinput.Model
+	confirmTargetIDs []string
+	prevState        ViewState
 }
 
 type instancesLoadedMsg []domain.EC2Instance
@@ -65,12 +80,18 @@ func NewModel(a *app.App) Model {
 
 	t.SetStyles(common.DefaultTableStyles())
 
+	ci := textinput.New()
+	ci.Placeholder = ""
+	ci.CharLimit = 50
+	ci.Width = 30
+
 	return Model{
-		app:         a,
-		table:       t,
-		state:       ViewList,
-		selectedIDs: make(map[string]struct{}),
-		search:      common.NewTableSearch(),
+		app:          a,
+		table:        t,
+		state:        ViewList,
+		selectedIDs:  make(map[string]struct{}),
+		search:       common.NewTableSearch(),
+		confirmInput: ci,
 	}
 }
 
@@ -107,6 +128,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyMsg:
 		m.actionMsg = ""
 
+		if m.state == ViewConfirm {
+			return m.handleConfirmInput(msg)
+		}
+
 		if m.state == ViewDetail {
 			switch msg.String() {
 			case "backspace", "esc", "q":
@@ -115,8 +140,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				return m, nil
 			case "s":
 				if m.selected != nil && m.selected.State == domain.InstanceStatusRunning {
-					m.loading = true
-					return m, m.stopInstance(m.selected.ID)
+					return m.enterConfirmMode(ActionStop, []string{m.selected.ID})
 				}
 			case "S":
 				if m.selected != nil && m.selected.State == domain.InstanceStatusStopped {
@@ -127,6 +151,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				if m.selected != nil && m.selected.State == domain.InstanceStatusRunning {
 					m.loading = true
 					return m, m.rebootInstance(m.selected.ID)
+				}
+			case "T":
+				if m.selected != nil && m.selected.State != domain.InstanceStatusTerminated && m.selected.State != domain.InstanceStatusShuttingDown {
+					return m.enterConfirmMode(ActionTerminate, []string{m.selected.ID})
 				}
 			}
 			return m, nil
@@ -182,6 +210,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				m.state = ViewDetail
 			}
 			return m, nil
+		case "s":
+			return m.handleListAction(ActionStop, domain.InstanceStatusRunning)
+		case "S":
+			return m.handleListStartAction()
+		case "T":
+			return m.handleListAction(ActionTerminate, "")
 		default:
 			if common.HandleTableNavKeys(&m.table, msg.String()) {
 				return m, nil
@@ -259,17 +293,31 @@ func (m Model) View() string {
 		return "Loading EC2 instances..."
 	}
 
+	if m.state == ViewConfirm {
+		var base string
+		if m.prevState == ViewDetail && m.selected != nil {
+			base = m.renderDetailView()
+		} else {
+			base = m.renderListView()
+		}
+		return m.overlayConfirmModal(base)
+	}
+
 	if m.state == ViewDetail && m.selected != nil {
 		return m.renderDetailView()
 	}
 
+	return m.renderListView()
+}
+
+func (m Model) renderListView() string {
 	var statusLine string
 	if m.actionMsg != "" {
 		statusLine = lipgloss.NewStyle().Foreground(common.SuccessColor).Render(m.actionMsg)
 	}
 
 	indicator := m.search.Indicator()
-	tips := "enter: detail | r: refresh | /: search | space: select | j/k: navigate | g/G: top/bottom"
+	tips := "enter: detail | s: stop | S: start | T: terminate | r: refresh | /: search | space: select"
 	if indicator != "" {
 		tips = indicator + " | " + tips
 	}
@@ -410,11 +458,13 @@ func (m Model) renderDetailView() string {
 	var actions string
 	switch inst.State {
 	case domain.InstanceStatusRunning:
-		actions = "s: stop | R: reboot"
+		actions = "s: stop | R: reboot | T: terminate"
 	case domain.InstanceStatusStopped:
-		actions = "S: start"
-	default:
+		actions = "S: start | T: terminate"
+	case domain.InstanceStatusTerminated, domain.InstanceStatusShuttingDown:
 		actions = "(no actions available)"
+	default:
+		actions = "T: terminate"
 	}
 
 	var statusLine string
@@ -496,4 +546,282 @@ func (m Model) rebootInstance(instanceID string) tea.Cmd {
 		}
 		return actionSuccessMsg(fmt.Sprintf("Instance %s is rebooting...", instanceID))
 	}
+}
+
+func (m Model) terminateInstance(instanceID string) tea.Cmd {
+	return func() tea.Msg {
+		if m.app.AWSClient == nil {
+			return actionErrorMsg{fmt.Errorf("AWS client not initialized")}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err := m.app.AWSClient.EC2().TerminateInstance(ctx, instanceID)
+		if err != nil {
+			return actionErrorMsg{err}
+		}
+		return actionSuccessMsg(fmt.Sprintf("Instance %s is terminating...", instanceID))
+	}
+}
+
+func (m Model) startInstances(instanceIDs []string) tea.Cmd {
+	return func() tea.Msg {
+		if m.app.AWSClient == nil {
+			return actionErrorMsg{fmt.Errorf("AWS client not initialized")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		for _, id := range instanceIDs {
+			if err := m.app.AWSClient.EC2().StartInstance(ctx, id); err != nil {
+				return actionErrorMsg{err}
+			}
+		}
+		return actionSuccessMsg(fmt.Sprintf("%d instance(s) starting...", len(instanceIDs)))
+	}
+}
+
+func (m Model) stopInstances(instanceIDs []string) tea.Cmd {
+	return func() tea.Msg {
+		if m.app.AWSClient == nil {
+			return actionErrorMsg{fmt.Errorf("AWS client not initialized")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		for _, id := range instanceIDs {
+			if err := m.app.AWSClient.EC2().StopInstance(ctx, id); err != nil {
+				return actionErrorMsg{err}
+			}
+		}
+		return actionSuccessMsg(fmt.Sprintf("%d instance(s) stopping...", len(instanceIDs)))
+	}
+}
+
+func (m Model) terminateInstances(instanceIDs []string) tea.Cmd {
+	return func() tea.Msg {
+		if m.app.AWSClient == nil {
+			return actionErrorMsg{fmt.Errorf("AWS client not initialized")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		for _, id := range instanceIDs {
+			if err := m.app.AWSClient.EC2().TerminateInstance(ctx, id); err != nil {
+				return actionErrorMsg{err}
+			}
+		}
+		return actionSuccessMsg(fmt.Sprintf("%d instance(s) terminating...", len(instanceIDs)))
+	}
+}
+
+func (m Model) getTargetInstanceIDs(requiredState domain.InstanceStatus, excludeStates ...domain.InstanceStatus) []string {
+	excludeMap := make(map[domain.InstanceStatus]struct{})
+	for _, s := range excludeStates {
+		excludeMap[s] = struct{}{}
+	}
+
+	var ids []string
+	if len(m.selectedIDs) > 0 {
+		for _, inst := range m.instances {
+			if _, ok := m.selectedIDs[inst.ID]; !ok {
+				continue
+			}
+			if _, excluded := excludeMap[inst.State]; excluded {
+				continue
+			}
+			if requiredState != "" && inst.State != requiredState {
+				continue
+			}
+			ids = append(ids, inst.ID)
+		}
+	} else {
+		idx := m.table.Cursor()
+		if idx >= 0 && idx < len(m.instances) {
+			inst := m.instances[idx]
+			if _, excluded := excludeMap[inst.State]; !excluded {
+				if requiredState == "" || inst.State == requiredState {
+					ids = append(ids, inst.ID)
+				}
+			}
+		}
+	}
+	return ids
+}
+
+func (m Model) handleListAction(action ConfirmAction, requiredState domain.InstanceStatus) (Model, tea.Cmd) {
+	var ids []string
+	if action == ActionTerminate {
+		ids = m.getTargetInstanceIDs("", domain.InstanceStatusTerminated, domain.InstanceStatusShuttingDown)
+	} else {
+		ids = m.getTargetInstanceIDs(requiredState)
+	}
+	if len(ids) == 0 {
+		return m, nil
+	}
+	return m.enterConfirmMode(action, ids)
+}
+
+func (m Model) handleListStartAction() (Model, tea.Cmd) {
+	ids := m.getTargetInstanceIDs(domain.InstanceStatusStopped)
+	if len(ids) == 0 {
+		return m, nil
+	}
+	m.loading = true
+	return m, m.startInstances(ids)
+}
+
+func (m Model) confirmKeyword() string {
+	switch m.confirmAction {
+	case ActionStop:
+		return "stop"
+	case ActionTerminate:
+		return "terminate"
+	default:
+		return ""
+	}
+}
+
+func (m Model) confirmActionName() string {
+	switch m.confirmAction {
+	case ActionStop:
+		return "STOP"
+	case ActionTerminate:
+		return "TERMINATE"
+	default:
+		return ""
+	}
+}
+
+func (m Model) enterConfirmMode(action ConfirmAction, instanceIDs []string) (Model, tea.Cmd) {
+	m.prevState = m.state
+	m.state = ViewConfirm
+	m.confirmAction = action
+	m.confirmTargetIDs = instanceIDs
+	m.confirmInput.Reset()
+	m.confirmInput.Focus()
+	return m, textinput.Blink
+}
+
+func (m Model) exitConfirmMode() Model {
+	m.state = m.prevState
+	m.confirmAction = ActionNone
+	m.confirmTargetIDs = nil
+	m.confirmInput.Reset()
+	m.confirmInput.Blur()
+	return m
+}
+
+func (m Model) handleConfirmInput(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m = m.exitConfirmMode()
+		return m, nil
+	case "enter":
+		if m.confirmInput.Value() == m.confirmKeyword() {
+			m.loading = true
+			targetIDs := m.confirmTargetIDs
+			action := m.confirmAction
+			m = m.exitConfirmMode()
+			switch action {
+			case ActionStop:
+				return m, m.stopInstances(targetIDs)
+			case ActionTerminate:
+				return m, m.terminateInstances(targetIDs)
+			}
+		}
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.confirmInput, cmd = m.confirmInput.Update(msg)
+		return m, cmd
+	}
+}
+
+func (m Model) overlayConfirmModal(base string) string {
+	modal := m.renderConfirmModal()
+	modalWidth := lipgloss.Width(modal)
+	modalHeight := lipgloss.Height(modal)
+	x := (m.width - modalWidth) / 2
+	y := (m.height - modalHeight) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	return common.PlaceOverlay(x, y, modal, base)
+}
+
+func (m Model) renderConfirmModal() string {
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(common.WarningColor).
+		Padding(1, 2)
+
+	warningStyle := lipgloss.NewStyle().
+		Foreground(common.WarningColor).
+		Bold(true)
+
+	labelStyle := lipgloss.NewStyle().
+		Foreground(common.TextColor)
+
+	keyword := m.confirmKeyword()
+	actionName := m.confirmActionName()
+
+	var instanceLines []string
+	count := len(m.confirmTargetIDs)
+	if count == 1 {
+		id := m.confirmTargetIDs[0]
+		name := id
+		for _, inst := range m.allInstances {
+			if inst.ID == id && inst.Name != "" {
+				name = inst.Name
+				break
+			}
+		}
+		instanceLines = append(instanceLines,
+			labelStyle.Render(fmt.Sprintf("Instance: %s", name)),
+			labelStyle.Render(fmt.Sprintf("ID: %s", id)),
+		)
+	} else {
+		instanceLines = append(instanceLines,
+			labelStyle.Render(fmt.Sprintf("Instances: %d selected", count)),
+		)
+		for i, id := range m.confirmTargetIDs {
+			if i >= 5 {
+				instanceLines = append(instanceLines,
+					labelStyle.Render(fmt.Sprintf("  ... and %d more", count-5)),
+				)
+				break
+			}
+			name := id
+			for _, inst := range m.allInstances {
+				if inst.ID == id && inst.Name != "" {
+					name = inst.Name
+					break
+				}
+			}
+			instanceLines = append(instanceLines,
+				labelStyle.Render(fmt.Sprintf("  - %s (%s)", name, id)),
+			)
+		}
+	}
+
+	elements := []string{
+		warningStyle.Render(fmt.Sprintf("⚠ %s Instance(s)", actionName)),
+		"",
+	}
+	elements = append(elements, instanceLines...)
+	elements = append(elements,
+		"",
+		labelStyle.Render(fmt.Sprintf("Type '%s' to confirm:", keyword)),
+		m.confirmInput.View(),
+		"",
+		lipgloss.NewStyle().Foreground(common.InfoColor).Render("esc: cancel | enter: confirm"),
+	)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, elements...)
+	return boxStyle.Render(content)
 }

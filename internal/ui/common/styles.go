@@ -258,3 +258,32 @@ func HandleTableNavKeys(t *table.Model, key string) bool {
 		return false
 	}
 }
+
+func PlaceOverlay(x, y int, fg, bg string) string {
+	fgLines := strings.Split(fg, "\n")
+	bgLines := strings.Split(bg, "\n")
+
+	for i, fgLine := range fgLines {
+		bgY := y + i
+		if bgY < 0 || bgY >= len(bgLines) {
+			continue
+		}
+		bgLine := bgLines[bgY]
+		bgRunes := []rune(bgLine)
+		fgRunes := []rune(fgLine)
+
+		for j, r := range fgRunes {
+			bgX := x + j
+			if bgX < 0 {
+				continue
+			}
+			if bgX >= len(bgRunes) {
+				bgRunes = append(bgRunes, make([]rune, bgX-len(bgRunes)+1)...)
+			}
+			bgRunes[bgX] = r
+		}
+		bgLines[bgY] = string(bgRunes)
+	}
+
+	return strings.Join(bgLines, "\n")
+}

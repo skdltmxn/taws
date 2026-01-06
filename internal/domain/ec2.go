@@ -37,4 +37,5 @@ type EC2Client interface {
 	StartInstance(ctx context.Context, instanceID string) error
 	StopInstance(ctx context.Context, instanceID string) error
 	RebootInstance(ctx context.Context, instanceID string) error
+	TerminateInstance(ctx context.Context, instanceID string) error
 }

@@ -89,7 +89,9 @@ We adopt a **Clean Architecture** approach to ensure separation of concerns and 
 - [x] **EC2 Module**:
   - [x] List instances with status (running/stopped/pending/stopping)
   - [x] Detail view for selected instance
-  - [x] Actions: Start (`S`), Stop (`s`), Reboot (`R`)
+  - [x] Actions: Start (`S`), Stop (`s`), Reboot (`R`), Terminate (`T`)
+  - [x] Confirmation modal for destructive actions (stop/terminate)
+  - [x] Multi-select batch operations with `space`
   - [x] Vim-style navigation (j/k/g/G)
 - [x] **VPC Module**:
   - [x] List VPCs with CIDR and state
@@ -207,12 +209,15 @@ taws uses a k9s-inspired layout:
 | `backspace` / `esc` | Go back (and clears active filter, if any) |
 | `r` | Refresh |
 
-#### EC2 Actions (Detail View Only)
+#### EC2 Actions (List & Detail View)
 | Key | Action |
 |-----|--------|
-| `S` | Start instance (when stopped) |
-| `s` | Stop instance (when running) |
-| `R` | Reboot instance (when running) |
+| `S` | Start instance(s) (when stopped) |
+| `s` | Stop instance(s) (when running) - requires confirmation |
+| `R` | Reboot instance (when running, detail view only) |
+| `T` | Terminate instance(s) - requires confirmation |
+
+**Note**: Stop and Terminate actions require typing a confirmation keyword (`stop` or `terminate`) to prevent accidental operations. Multi-select with `space` is supported for batch operations.
 
 #### Profiles Page
 | Key | Action |

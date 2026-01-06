@@ -135,3 +135,13 @@ func (c *EC2Client) RebootInstance(ctx context.Context, instanceID string) error
 	}
 	return nil
 }
+
+func (c *EC2Client) TerminateInstance(ctx context.Context, instanceID string) error {
+	_, err := c.client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to terminate instance %s: %w", instanceID, err)
+	}
+	return nil
+}
