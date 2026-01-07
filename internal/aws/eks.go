@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/eks"
@@ -28,30 +27,36 @@ func (c *EKSClient) ListClusters(ctx context.Context) ([]domain.EKSCluster, erro
 	}
 
 	var clusters []domain.EKSCluster
+	var lastErr error
 	for _, name := range output.Clusters {
-		// Describe cluster to get details
 		desc, err := c.client.DescribeCluster(ctx, &eks.DescribeClusterInput{
 			Name: aws.String(name),
 		})
 		if err != nil {
-			// Log error but continue? Or return partial?
-			// For now, just skip or return minimal info if describe fails
-			// But skipping is safer
+			lastErr = err
+			clusters = append(clusters, domain.EKSCluster{
+				Name:   name,
+				Status: "Unknown",
+			})
 			continue
 		}
 
 		cluster := desc.Cluster
 		clusters = append(clusters, domain.EKSCluster{
-			Name:      *cluster.Name,
+			Name:      derefString(cluster.Name),
 			Status:    string(cluster.Status),
-			Version:   *cluster.Version,
-			CreatedAt: *cluster.CreatedAt,
+			Version:   derefString(cluster.Version),
+			CreatedAt: derefTime(cluster.CreatedAt),
 		})
 	}
 
 	sort.Slice(clusters, func(i, j int) bool {
 		return clusters[i].Name < clusters[j].Name
 	})
+
+	if lastErr != nil && len(clusters) == 0 {
+		return nil, fmt.Errorf("failed to describe clusters: %w", lastErr)
+	}
 
 	return clusters, nil
 }
@@ -77,37 +82,24 @@ func (c *EKSClient) ListNodegroups(ctx context.Context, clusterName string) ([]d
 				NodegroupName: aws.String(ngName),
 			})
 			if err != nil {
+				nodegroups = append(nodegroups, domain.EKSNodegroup{
+					Name:   ngName,
+					Status: "Unknown",
+				})
 				continue
 			}
 
 			ng := desc.Nodegroup
-			createdAt := time.Time{}
-			if ng.CreatedAt != nil {
-				createdAt = *ng.CreatedAt
-			}
-
-			version := ""
-			if ng.Version != nil {
-				version = *ng.Version
-			}
-
-			status := ""
-			if ng.Status != "" {
-				status = string(ng.Status)
-			}
-
-			name := ""
-			if ng.NodegroupName != nil {
-				name = *ng.NodegroupName
-			} else {
+			name := derefString(ng.NodegroupName)
+			if name == "" {
 				name = ngName
 			}
 
 			nodegroups = append(nodegroups, domain.EKSNodegroup{
 				Name:      name,
-				Status:    status,
-				Version:   version,
-				CreatedAt: createdAt,
+				Status:    string(ng.Status),
+				Version:   derefString(ng.Version),
+				CreatedAt: derefTime(ng.CreatedAt),
 			})
 		}
 	}

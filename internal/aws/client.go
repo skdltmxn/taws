@@ -6,15 +6,67 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go/logging"
 	"github.com/skdltmxn/taws/internal/domain"
 )
 
-const defaultRegion = "us-east-1"
+const (
+	defaultRegion = "us-east-1"
+
+	TimeoutShort  = 10 * time.Second
+	TimeoutMedium = 30 * time.Second
+	TimeoutLong   = 5 * time.Minute
+)
+
+func extractNameTag(tags []types.Tag) string {
+	for _, tag := range tags {
+		if tag.Key != nil && *tag.Key == "Name" && tag.Value != nil {
+			return *tag.Value
+		}
+	}
+	return ""
+}
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func derefTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
+}
+
+func derefInt32(i *int32) int32 {
+	if i == nil {
+		return 0
+	}
+	return *i
+}
+
+func derefBool(b *bool) bool {
+	if b == nil {
+		return false
+	}
+	return *b
+}
+
+func derefInt64(i *int64) int64 {
+	if i == nil {
+		return 0
+	}
+	return *i
+}
 
 type Client struct {
 	cfg     aws.Config

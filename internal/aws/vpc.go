@@ -33,20 +33,12 @@ func (c *VPCClient) ListVPCs(ctx context.Context) ([]domain.VPC, error) {
 		}
 
 		for _, v := range output.Vpcs {
-			name := ""
-			for _, tag := range v.Tags {
-				if *tag.Key == "Name" {
-					name = *tag.Value
-					break
-				}
-			}
-
 			vpcs = append(vpcs, domain.VPC{
-				ID:        *v.VpcId,
-				CidrBlock: *v.CidrBlock,
+				ID:        derefString(v.VpcId),
+				CidrBlock: derefString(v.CidrBlock),
 				State:     string(v.State),
-				IsDefault: *v.IsDefault,
-				Name:      name,
+				IsDefault: derefBool(v.IsDefault),
+				Name:      extractNameTag(v.Tags),
 			})
 		}
 	}
@@ -78,23 +70,15 @@ func (c *VPCClient) ListSubnets(ctx context.Context, vpcID string) ([]domain.Sub
 		}
 
 		for _, s := range output.Subnets {
-			name := ""
-			for _, tag := range s.Tags {
-				if *tag.Key == "Name" {
-					name = *tag.Value
-					break
-				}
-			}
-
 			subnets = append(subnets, domain.Subnet{
-				ID:                  *s.SubnetId,
-				VpcID:               *s.VpcId,
-				CidrBlock:           *s.CidrBlock,
-				AvailabilityZone:    *s.AvailabilityZone,
-				AvailableIPs:        *s.AvailableIpAddressCount,
+				ID:                  derefString(s.SubnetId),
+				VpcID:               derefString(s.VpcId),
+				CidrBlock:           derefString(s.CidrBlock),
+				AvailabilityZone:    derefString(s.AvailabilityZone),
+				AvailableIPs:        derefInt32(s.AvailableIpAddressCount),
 				State:               string(s.State),
-				Name:                name,
-				MapPublicIPOnLaunch: *s.MapPublicIpOnLaunch,
+				Name:                extractNameTag(s.Tags),
+				MapPublicIPOnLaunch: derefBool(s.MapPublicIpOnLaunch),
 			})
 		}
 	}

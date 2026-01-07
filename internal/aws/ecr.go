@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -34,21 +33,6 @@ func (c *ECRClient) ListRepositories(ctx context.Context) ([]domain.Repository, 
 		}
 
 		for _, r := range output.Repositories {
-			name := ""
-			if r.RepositoryName != nil {
-				name = *r.RepositoryName
-			}
-
-			uri := ""
-			if r.RepositoryUri != nil {
-				uri = *r.RepositoryUri
-			}
-
-			createdAt := time.Time{}
-			if r.CreatedAt != nil {
-				createdAt = *r.CreatedAt
-			}
-
 			encryption := "AES256"
 			if r.EncryptionConfiguration != nil && r.EncryptionConfiguration.EncryptionType != "" {
 				encryption = string(r.EncryptionConfiguration.EncryptionType)
@@ -60,11 +44,11 @@ func (c *ECRClient) ListRepositories(ctx context.Context) ([]domain.Repository, 
 			}
 
 			repos = append(repos, domain.Repository{
-				Name:       name,
-				URI:        uri,
+				Name:       derefString(r.RepositoryName),
+				URI:        derefString(r.RepositoryUri),
 				Encryption: encryption,
 				Mutability: mutability,
-				CreatedAt:  createdAt,
+				CreatedAt:  derefTime(r.CreatedAt),
 			})
 		}
 	}
@@ -92,20 +76,9 @@ func (c *ECRClient) ListImageTags(ctx context.Context, repositoryName string) ([
 		}
 
 		for _, img := range output.ImageDetails {
-			digest := ""
-			if img.ImageDigest != nil {
-				digest = *img.ImageDigest
-			}
-
-			pushedAt := time.Time{}
-			if img.ImagePushedAt != nil {
-				pushedAt = *img.ImagePushedAt
-			}
-
-			var sizeBytes int64
-			if img.ImageSizeInBytes != nil {
-				sizeBytes = *img.ImageSizeInBytes
-			}
+			digest := derefString(img.ImageDigest)
+			pushedAt := derefTime(img.ImagePushedAt)
+			sizeBytes := derefInt64(img.ImageSizeInBytes)
 
 			if len(img.ImageTags) == 0 {
 				id := digest

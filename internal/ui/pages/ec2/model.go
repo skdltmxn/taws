@@ -26,7 +26,9 @@ type ConfirmAction int
 
 const (
 	ActionNone ConfirmAction = iota
+	ActionStart
 	ActionStop
+	ActionReboot
 	ActionTerminate
 )
 
@@ -57,6 +59,12 @@ type instancesLoadedMsg []domain.EC2Instance
 type errMsg struct{ error }
 type actionSuccessMsg string
 type actionErrorMsg struct{ error }
+type autoRefreshTickMsg time.Time
+
+const (
+	autoRefreshFast = 3 * time.Second
+	autoRefreshSlow = 10 * time.Second
+)
 
 func NewModel(a *app.App) Model {
 	columns := []table.Column{
@@ -108,7 +116,13 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.loaded = true
 		m.err = nil
 		m = m.applyFilter()
-		return m, nil
+		return m, m.scheduleAutoRefresh()
+
+	case autoRefreshTickMsg:
+		if m.loading || m.state == ViewConfirm {
+			return m, m.scheduleAutoRefresh()
+		}
+		return m, m.fetchInstances
 
 	case actionSuccessMsg:
 		m.actionMsg = string(msg)
@@ -145,12 +159,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			case "S":
 				if m.selected != nil && m.selected.State == domain.InstanceStatusStopped {
 					m.loading = true
-					return m, m.startInstance(m.selected.ID)
+					return m, m.executeInstanceAction(ActionStart, []string{m.selected.ID})
 				}
 			case "R":
 				if m.selected != nil && m.selected.State == domain.InstanceStatusRunning {
 					m.loading = true
-					return m, m.rebootInstance(m.selected.ID)
+					return m, m.executeInstanceAction(ActionReboot, []string{m.selected.ID})
 				}
 			case "T":
 				if m.selected != nil && m.selected.State != domain.InstanceStatusTerminated && m.selected.State != domain.InstanceStatusShuttingDown {
@@ -214,6 +228,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m.handleListAction(ActionStop, domain.InstanceStatusRunning)
 		case "S":
 			return m.handleListStartAction()
+		case "R":
+			return m.handleListRebootAction()
 		case "T":
 			return m.handleListAction(ActionTerminate, "")
 		default:
@@ -238,9 +254,9 @@ func (m Model) SetSize(width, height int) Model {
 	const (
 		cellPadding  = 20
 		minName      = 18
-		maxName      = 28
+		maxName      = 32
 		minID        = 19
-		minState     = 9
+		minState     = 13
 		minType      = 13
 		maxType      = 18
 		minAZ        = 14
@@ -317,7 +333,7 @@ func (m Model) renderListView() string {
 	}
 
 	indicator := m.search.Indicator()
-	tips := "enter: detail | s: stop | S: start | T: terminate | r: refresh | /: search | space: select"
+	tips := "enter: detail | s: stop | S: start | R: reboot | T: terminate | r: refresh | /: search | space: select"
 	if indicator != "" {
 		tips = indicator + " | " + tips
 	}
@@ -497,122 +513,74 @@ func (m Model) fetchInstances() tea.Msg {
 	return instancesLoadedMsg(instances)
 }
 
-func (m Model) startInstance(instanceID string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		if m.app.AWSClient == nil {
-			return actionErrorMsg{fmt.Errorf("AWS client not initialized")}
+func (m Model) hasTransitionalState() bool {
+	for _, inst := range m.allInstances {
+		switch inst.State {
+		case domain.InstanceStatusPending,
+			domain.InstanceStatusStopping,
+			domain.InstanceStatusShuttingDown:
+			return true
 		}
-
-		err := m.app.AWSClient.EC2().StartInstance(ctx, instanceID)
-		if err != nil {
-			return actionErrorMsg{err}
-		}
-		return actionSuccessMsg(fmt.Sprintf("Instance %s is starting...", instanceID))
 	}
+	return false
 }
 
-func (m Model) stopInstance(instanceID string) tea.Cmd {
-	return func() tea.Msg {
-		if m.app.AWSClient == nil {
-			return actionErrorMsg{fmt.Errorf("AWS client not initialized")}
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		err := m.app.AWSClient.EC2().StopInstance(ctx, instanceID)
-		if err != nil {
-			return actionErrorMsg{err}
-		}
-		return actionSuccessMsg(fmt.Sprintf("Instance %s is stopping...", instanceID))
+func (m Model) scheduleAutoRefresh() tea.Cmd {
+	interval := autoRefreshSlow
+	if m.hasTransitionalState() {
+		interval = autoRefreshFast
 	}
+	return tea.Tick(interval, func(t time.Time) tea.Msg {
+		return autoRefreshTickMsg(t)
+	})
 }
 
-func (m Model) rebootInstance(instanceID string) tea.Cmd {
+func (m Model) executeInstanceAction(action ConfirmAction, instanceIDs []string) tea.Cmd {
 	return func() tea.Msg {
 		if m.app.AWSClient == nil {
 			return actionErrorMsg{fmt.Errorf("AWS client not initialized")}
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+		ec2Client := m.app.AWSClient.EC2()
+		var actionFn func(context.Context, string) error
+		var actionVerb string
 
-		err := m.app.AWSClient.EC2().RebootInstance(ctx, instanceID)
-		if err != nil {
-			return actionErrorMsg{err}
+		switch action {
+		case ActionStart:
+			actionFn = ec2Client.StartInstance
+			actionVerb = "starting"
+		case ActionStop:
+			actionFn = ec2Client.StopInstance
+			actionVerb = "stopping"
+		case ActionReboot:
+			actionFn = ec2Client.RebootInstance
+			actionVerb = "rebooting"
+		case ActionTerminate:
+			actionFn = ec2Client.TerminateInstance
+			actionVerb = "terminating"
+		default:
+			return actionErrorMsg{fmt.Errorf("unknown action")}
 		}
-		return actionSuccessMsg(fmt.Sprintf("Instance %s is rebooting...", instanceID))
-	}
-}
 
-func (m Model) terminateInstance(instanceID string) tea.Cmd {
-	return func() tea.Msg {
-		if m.app.AWSClient == nil {
-			return actionErrorMsg{fmt.Errorf("AWS client not initialized")}
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		err := m.app.AWSClient.EC2().TerminateInstance(ctx, instanceID)
-		if err != nil {
-			return actionErrorMsg{err}
-		}
-		return actionSuccessMsg(fmt.Sprintf("Instance %s is terminating...", instanceID))
-	}
-}
-
-func (m Model) startInstances(instanceIDs []string) tea.Cmd {
-	return func() tea.Msg {
-		if m.app.AWSClient == nil {
-			return actionErrorMsg{fmt.Errorf("AWS client not initialized")}
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
+		var succeeded []string
 		for _, id := range instanceIDs {
-			if err := m.app.AWSClient.EC2().StartInstance(ctx, id); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			err := actionFn(ctx, id)
+			cancel()
+
+			if err != nil {
+				if len(succeeded) > 0 {
+					return actionErrorMsg{fmt.Errorf("%d instance(s) succeeded, but failed on %s: %w", len(succeeded), id, err)}
+				}
 				return actionErrorMsg{err}
 			}
+			succeeded = append(succeeded, id)
 		}
-		return actionSuccessMsg(fmt.Sprintf("%d instance(s) starting...", len(instanceIDs)))
-	}
-}
 
-func (m Model) stopInstances(instanceIDs []string) tea.Cmd {
-	return func() tea.Msg {
-		if m.app.AWSClient == nil {
-			return actionErrorMsg{fmt.Errorf("AWS client not initialized")}
+		if len(instanceIDs) == 1 {
+			return actionSuccessMsg(fmt.Sprintf("Instance %s is %s...", instanceIDs[0], actionVerb))
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		for _, id := range instanceIDs {
-			if err := m.app.AWSClient.EC2().StopInstance(ctx, id); err != nil {
-				return actionErrorMsg{err}
-			}
-		}
-		return actionSuccessMsg(fmt.Sprintf("%d instance(s) stopping...", len(instanceIDs)))
-	}
-}
-
-func (m Model) terminateInstances(instanceIDs []string) tea.Cmd {
-	return func() tea.Msg {
-		if m.app.AWSClient == nil {
-			return actionErrorMsg{fmt.Errorf("AWS client not initialized")}
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		for _, id := range instanceIDs {
-			if err := m.app.AWSClient.EC2().TerminateInstance(ctx, id); err != nil {
-				return actionErrorMsg{err}
-			}
-		}
-		return actionSuccessMsg(fmt.Sprintf("%d instance(s) terminating...", len(instanceIDs)))
+		return actionSuccessMsg(fmt.Sprintf("%d instance(s) %s...", len(instanceIDs), actionVerb))
 	}
 }
 
@@ -669,7 +637,16 @@ func (m Model) handleListStartAction() (Model, tea.Cmd) {
 		return m, nil
 	}
 	m.loading = true
-	return m, m.startInstances(ids)
+	return m, m.executeInstanceAction(ActionStart, ids)
+}
+
+func (m Model) handleListRebootAction() (Model, tea.Cmd) {
+	ids := m.getTargetInstanceIDs(domain.InstanceStatusRunning)
+	if len(ids) == 0 {
+		return m, nil
+	}
+	m.loading = true
+	return m, m.executeInstanceAction(ActionReboot, ids)
 }
 
 func (m Model) confirmKeyword() string {
@@ -724,12 +701,7 @@ func (m Model) handleConfirmInput(msg tea.KeyMsg) (Model, tea.Cmd) {
 			targetIDs := m.confirmTargetIDs
 			action := m.confirmAction
 			m = m.exitConfirmMode()
-			switch action {
-			case ActionStop:
-				return m, m.stopInstances(targetIDs)
-			case ActionTerminate:
-				return m, m.terminateInstances(targetIDs)
-			}
+			return m, m.executeInstanceAction(action, targetIDs)
 		}
 		return m, nil
 	default:

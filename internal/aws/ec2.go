@@ -33,60 +33,27 @@ func (c *EC2Client) ListInstances(ctx context.Context) ([]domain.EC2Instance, er
 
 		for _, reservation := range output.Reservations {
 			for _, instance := range reservation.Instances {
-				name := ""
-				for _, tag := range instance.Tags {
-					if *tag.Key == "Name" {
-						name = *tag.Value
-						break
-					}
-				}
-
-				publicIP := ""
-				if instance.PublicIpAddress != nil {
-					publicIP = *instance.PublicIpAddress
-				}
-
-				privateIP := ""
-				if instance.PrivateIpAddress != nil {
-					privateIP = *instance.PrivateIpAddress
-				}
-
-				keyName := ""
-				if instance.KeyName != nil {
-					keyName = *instance.KeyName
-				}
-
-				vpcID := ""
-				if instance.VpcId != nil {
-					vpcID = *instance.VpcId
-				}
-
-				subnetID := ""
-				if instance.SubnetId != nil {
-					subnetID = *instance.SubnetId
-				}
-
 				platform := "Linux"
 				if instance.Platform != "" {
 					platform = string(instance.Platform)
 				}
 
 				az := ""
-				if instance.Placement != nil && instance.Placement.AvailabilityZone != nil {
-					az = *instance.Placement.AvailabilityZone
+				if instance.Placement != nil {
+					az = derefString(instance.Placement.AvailabilityZone)
 				}
 
 				instances = append(instances, domain.EC2Instance{
-					ID:               *instance.InstanceId,
-					Name:             name,
+					ID:               derefString(instance.InstanceId),
+					Name:             extractNameTag(instance.Tags),
 					Type:             string(instance.InstanceType),
 					State:            domain.InstanceStatus(instance.State.Name),
-					PublicIP:         publicIP,
-					PrivateIP:        privateIP,
-					LaunchTime:       *instance.LaunchTime,
-					KeyName:          keyName,
-					VpcID:            vpcID,
-					SubnetID:         subnetID,
+					PublicIP:         derefString(instance.PublicIpAddress),
+					PrivateIP:        derefString(instance.PrivateIpAddress),
+					LaunchTime:       derefTime(instance.LaunchTime),
+					KeyName:          derefString(instance.KeyName),
+					VpcID:            derefString(instance.VpcId),
+					SubnetID:         derefString(instance.SubnetId),
 					AvailabilityZone: az,
 					Architecture:     string(instance.Architecture),
 					Platform:         platform,

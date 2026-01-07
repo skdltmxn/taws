@@ -33,10 +33,10 @@ func (c *IAMClient) ListUsers(ctx context.Context) ([]domain.IAMUser, error) {
 
 		for _, u := range output.Users {
 			users = append(users, domain.IAMUser{
-				UserName:   *u.UserName,
-				UserID:     *u.UserId,
-				CreateDate: *u.CreateDate,
-				Arn:        *u.Arn,
+				UserName:   derefString(u.UserName),
+				UserID:     derefString(u.UserId),
+				CreateDate: derefTime(u.CreateDate),
+				Arn:        derefString(u.Arn),
 			})
 		}
 	}
@@ -61,10 +61,10 @@ func (c *IAMClient) ListRoles(ctx context.Context) ([]domain.IAMRole, error) {
 
 		for _, r := range output.Roles {
 			roles = append(roles, domain.IAMRole{
-				RoleName:   aws.ToString(r.RoleName),
-				RoleID:     aws.ToString(r.RoleId),
-				CreateDate: aws.ToTime(r.CreateDate),
-				Arn:        aws.ToString(r.Arn),
+				RoleName:   derefString(r.RoleName),
+				RoleID:     derefString(r.RoleId),
+				CreateDate: derefTime(r.CreateDate),
+				Arn:        derefString(r.Arn),
 			})
 		}
 	}
