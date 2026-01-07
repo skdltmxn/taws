@@ -104,6 +104,7 @@ We adopt a **Clean Architecture** approach to ensure separation of concerns and 
   - [x] Browse objects (file explorer style with folder navigation)
   - [x] Cross-region bucket support (auto-detects bucket region)
   - [x] Download objects to local with destination path prompt, progress, and cancel
+  - [x] Delete objects/folders with confirmation modal (recursive folder deletion)
   - [x] Vim-style navigation
 - [x] **ECR Module**:
   - [x] List repositories with URI
@@ -229,7 +230,10 @@ taws uses a k9s-inspired layout:
 | Key | Action |
 |-----|--------|
 | `d` | Download selected object(s) |
+| `x` | Delete selected object(s)/folder(s) - requires confirmation |
 | `c` | Cancel download (while downloading) |
+
+**Note**: Delete action requires typing `delete` to confirm. Folder deletion recursively deletes all contents. Multi-select with `space` is supported for batch operations.
 
 ### Command Palette Commands
 | Alias | Name |

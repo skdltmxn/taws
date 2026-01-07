@@ -9,7 +9,7 @@
 *   **Multi-Account & Region Support**: Switch AWS profiles (including SSO) and regions at runtime without restarting.
 *   **Resource Management**:
     *   **EC2**: Start, stop, reboot, and terminate instances with confirmation prompts for destructive actions.
-    *   **S3**: Browse buckets/objects and download files with progress tracking.
+    *   **S3**: Browse buckets/objects, download files with progress tracking, and delete objects/folders.
     *   **Containers**: Inspect EKS clusters and ECR repositories.
     *   **Networking**: View VPCs, subnets, and Route53 hosted zones.
     *   **IAM**: List users and their details.
@@ -78,7 +78,9 @@ If your SSO session is expired, `taws` will attempt to refresh it automatically.
 *   **EC2**: `S` (Start), `s` (Stop), `R` (Reboot), `T` (Terminate)
     *   Stop and Terminate require typing confirmation keyword
     *   Multi-select supported for batch operations
-*   **S3**: `d` (Download Object), `c` (Cancel Download)
+*   **S3**: `d` (Download Object), `x` (Delete Object/Folder), `c` (Cancel Download)
+    *   Delete requires typing confirmation keyword (`delete`)
+    *   Folder deletion recursively removes all contents
 *   **Selection**: `space` (Toggle selection)
 
 ## Configuration & Themes

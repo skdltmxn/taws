@@ -24,4 +24,6 @@ type S3Client interface {
 	ListBuckets(ctx context.Context) ([]Bucket, error)
 	ListObjects(ctx context.Context, bucket string, prefix string) ([]S3Object, error)
 	DownloadObject(ctx context.Context, bucket, key, destPath string, onProgress func(written, total int64)) error
+	DeleteObject(ctx context.Context, bucket, key string) error
+	DeleteObjects(ctx context.Context, bucket string, keys []string) error
 }

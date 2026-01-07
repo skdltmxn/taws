@@ -24,6 +24,15 @@ type ViewState int
 const (
 	ViewBuckets ViewState = iota
 	ViewObjects
+	ViewConfirm
+)
+
+type ConfirmAction int
+
+const (
+	ActionNone ConfirmAction = iota
+	ActionDeleteObject
+	ActionDeleteFolder
 )
 
 type Model struct {
@@ -57,6 +66,11 @@ type Model struct {
 	err            error
 	width          int
 	height         int
+
+	confirmAction     ConfirmAction
+	confirmInput      textinput.Model
+	confirmTargetKeys []string
+	prevState         ViewState
 }
 
 type bucketsLoadedMsg []domain.Bucket
@@ -80,6 +94,9 @@ type downloadDoneMsg struct {
 	isError bool
 }
 
+type deleteSuccessMsg string
+type deleteErrorMsg struct{ error }
+
 func NewModel(a *app.App) Model {
 	t := table.New(
 		table.WithColumns([]table.Column{
@@ -99,6 +116,11 @@ func NewModel(a *app.App) Model {
 	di.PromptStyle = lipgloss.NewStyle().Foreground(common.InfoColor)
 	di.TextStyle = lipgloss.NewStyle().Foreground(common.TextColor)
 
+	ci := textinput.New()
+	ci.Placeholder = ""
+	ci.CharLimit = 50
+	ci.Width = 30
+
 	return Model{
 		app:            a,
 		table:          t,
@@ -113,6 +135,7 @@ func NewModel(a *app.App) Model {
 		downloadCh:     nil,
 		downloading:    false,
 		downloadCancel: nil,
+		confirmInput:   ci,
 	}
 }
 
@@ -137,6 +160,21 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.err = nil
 		m.state = ViewObjects
 		m = m.applyFilter()
+		return m, nil
+
+	case deleteSuccessMsg:
+		m.loading = false
+		m.message = string(msg)
+		m.messageIsErr = false
+		for _, k := range m.confirmTargetKeys {
+			delete(m.selectedObj, k)
+		}
+		return m, m.fetchObjects(m.currentBucket, m.prefix)
+
+	case deleteErrorMsg:
+		m.loading = false
+		m.message = msg.Error()
+		m.messageIsErr = true
 		return m, nil
 
 	case errMsg:
@@ -180,6 +218,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyMsg:
 		m.message = ""
 		m.messageIsErr = false
+
+		if m.state == ViewConfirm {
+			return m.handleConfirmInput(msg)
+		}
 
 		if m.downloading && msg.String() == "c" && m.downloadCancel != nil {
 			m.message = "Cancelling..."
@@ -291,7 +333,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				m2, c := m.openDownloadPrompt()
 				return m2, c
 			}
-		case "backspace", "delete", "esc":
+		case "x":
+			if m.state == ViewObjects {
+				return m.openDeleteConfirm()
+			}
+		case "backspace", "esc":
 			if m.state == ViewObjects {
 				if m.prefix == "" {
 					// Go back to buckets
@@ -396,7 +442,7 @@ func (m Model) View() string {
 	}
 
 	header := "S3 Buckets"
-	if m.state == ViewObjects {
+	if m.state == ViewObjects || m.state == ViewConfirm {
 		header = fmt.Sprintf("S3://%s/%s", m.currentBucket, m.prefix)
 	}
 
@@ -404,9 +450,18 @@ func (m Model) View() string {
 		return common.RenderLoading(header)
 	}
 
+	if m.state == ViewConfirm {
+		base := m.renderObjectsView(header)
+		return m.overlayConfirmModal(base)
+	}
+
+	return m.renderObjectsView(header)
+}
+
+func (m Model) renderObjectsView(header string) string {
 	tips := "enter: open | esc/backspace: back | r: refresh | j/k: navigate | /: search | space: select"
-	if m.state == ViewObjects {
-		tips = tips + " | d: download"
+	if m.state == ViewObjects || m.state == ViewConfirm {
+		tips = tips + " | d: download | x: delete"
 	}
 	if m.downloading {
 		tips = tips + " | c: cancel"
@@ -440,7 +495,7 @@ func (m Model) View() string {
 	}
 
 	tableView := m.table.View()
-	if m.state == ViewObjects {
+	if m.state == ViewObjects || m.state == ViewConfirm {
 		tableView = common.HighlightSelectedTableRows(tableView, m.table.Cursor(), m.visibleObject, m.selectedObj)
 	} else {
 		tableView = common.HighlightSelectedTableRows(tableView, m.table.Cursor(), m.visibleBucket, m.selectedBuck)
@@ -823,4 +878,285 @@ func (m Model) fetchObjects(bucket, prefix string) tea.Cmd {
 		}
 		return objectsLoadedMsg(objects)
 	}
+}
+
+func (m Model) openDeleteConfirm() (Model, tea.Cmd) {
+	if m.app == nil || m.app.AWSClient == nil {
+		m.message = "AWS client not initialized"
+		m.messageIsErr = true
+		return m, nil
+	}
+	if m.state != ViewObjects {
+		return m, nil
+	}
+	if m.currentBucket == "" {
+		m.message = "No bucket selected"
+		m.messageIsErr = true
+		return m, nil
+	}
+
+	keys := make([]string, 0)
+	if len(m.selectedObj) > 0 {
+		for k := range m.selectedObj {
+			keys = append(keys, k)
+		}
+	} else {
+		idx := m.table.Cursor()
+		if idx >= 0 && idx < len(m.visibleObject) {
+			keys = append(keys, m.visibleObject[idx])
+		}
+	}
+	if len(keys) == 0 {
+		m.message = "Select an object to delete"
+		m.messageIsErr = true
+		return m, nil
+	}
+
+	hasFolder := false
+	for _, k := range keys {
+		if m.isFolderKey(k) {
+			hasFolder = true
+			break
+		}
+	}
+
+	action := ActionDeleteObject
+	if hasFolder {
+		action = ActionDeleteFolder
+	}
+
+	return m.enterConfirmMode(action, keys)
+}
+
+func (m Model) enterConfirmMode(action ConfirmAction, keys []string) (Model, tea.Cmd) {
+	m.prevState = m.state
+	m.state = ViewConfirm
+	m.confirmAction = action
+	m.confirmTargetKeys = keys
+	m.confirmInput.Reset()
+	m.confirmInput.Focus()
+	return m, textinput.Blink
+}
+
+func (m Model) exitConfirmMode() Model {
+	m.state = m.prevState
+	m.confirmAction = ActionNone
+	m.confirmTargetKeys = nil
+	m.confirmInput.Reset()
+	m.confirmInput.Blur()
+	return m
+}
+
+func (m Model) handleConfirmInput(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m = m.exitConfirmMode()
+		return m, nil
+	case "enter":
+		if m.confirmInput.Value() == m.confirmKeyword() {
+			m.loading = true
+			targetKeys := m.confirmTargetKeys
+			action := m.confirmAction
+			m = m.exitConfirmMode()
+			return m, m.executeDeleteAction(action, targetKeys)
+		}
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.confirmInput, cmd = m.confirmInput.Update(msg)
+		return m, cmd
+	}
+}
+
+func (m Model) confirmKeyword() string {
+	switch m.confirmAction {
+	case ActionDeleteObject:
+		return "delete"
+	case ActionDeleteFolder:
+		return "delete"
+	default:
+		return ""
+	}
+}
+
+func (m Model) confirmActionName() string {
+	switch m.confirmAction {
+	case ActionDeleteObject:
+		return "DELETE"
+	case ActionDeleteFolder:
+		return "DELETE"
+	default:
+		return ""
+	}
+}
+
+func (m Model) executeDeleteAction(action ConfirmAction, keys []string) tea.Cmd {
+	appRef := m.app
+	bucket := m.currentBucket
+	return func() tea.Msg {
+		if appRef == nil || appRef.AWSClient == nil {
+			return deleteErrorMsg{fmt.Errorf("AWS client not initialized")}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		s3Client := appRef.AWSClient.S3()
+
+		if action == ActionDeleteFolder {
+			var allKeys []string
+			for _, key := range keys {
+				if strings.HasSuffix(key, "/") {
+					folderKeys, err := listAllObjectsRecursive(ctx, s3Client, bucket, key)
+					if err != nil {
+						return deleteErrorMsg{fmt.Errorf("failed to list folder contents: %w", err)}
+					}
+					allKeys = append(allKeys, folderKeys...)
+				} else {
+					allKeys = append(allKeys, key)
+				}
+			}
+			keys = allKeys
+		}
+
+		if len(keys) == 0 {
+			return deleteSuccessMsg("No objects to delete")
+		}
+
+		if len(keys) == 1 {
+			err := s3Client.DeleteObject(ctx, bucket, keys[0])
+			if err != nil {
+				return deleteErrorMsg{err}
+			}
+			return deleteSuccessMsg(fmt.Sprintf("Deleted: %s", path.Base(keys[0])))
+		}
+
+		err := s3Client.DeleteObjects(ctx, bucket, keys)
+		if err != nil {
+			return deleteErrorMsg{err}
+		}
+		return deleteSuccessMsg(fmt.Sprintf("Deleted %d object(s)", len(keys)))
+	}
+}
+
+func listAllObjectsRecursive(ctx context.Context, s3Client domain.S3Client, bucket, prefix string) ([]string, error) {
+	var allKeys []string
+	toVisit := []string{prefix}
+
+	for len(toVisit) > 0 {
+		currentPrefix := toVisit[0]
+		toVisit = toVisit[1:]
+
+		// Include the folder prefix itself for deletion
+		allKeys = append(allKeys, currentPrefix)
+
+		objs, err := s3Client.ListObjects(ctx, bucket, currentPrefix)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, obj := range objs {
+			if obj.IsFolder {
+				toVisit = append(toVisit, obj.Key)
+			} else {
+				allKeys = append(allKeys, obj.Key)
+			}
+		}
+	}
+
+	return allKeys, nil
+}
+
+func (m Model) overlayConfirmModal(base string) string {
+	modal := m.renderConfirmModal()
+	modalWidth := lipgloss.Width(modal)
+	modalHeight := lipgloss.Height(modal)
+	x := (m.width - modalWidth) / 2
+	y := (m.height - modalHeight) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	return common.PlaceOverlay(x, y, modal, base)
+}
+
+func (m Model) renderConfirmModal() string {
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(common.WarningColor).
+		Padding(1, 2)
+
+	warningStyle := lipgloss.NewStyle().
+		Foreground(common.WarningColor).
+		Bold(true)
+
+	labelStyle := lipgloss.NewStyle().
+		Foreground(common.TextColor)
+
+	keyword := m.confirmKeyword()
+	actionName := m.confirmActionName()
+
+	var objectLines []string
+	count := len(m.confirmTargetKeys)
+
+	hasFolder := false
+	for _, k := range m.confirmTargetKeys {
+		if m.isFolderKey(k) {
+			hasFolder = true
+			break
+		}
+	}
+
+	itemType := "Object(s)"
+	if hasFolder {
+		itemType = "Object(s)/Folder(s)"
+	}
+
+	if count == 1 {
+		key := m.confirmTargetKeys[0]
+		name := path.Base(strings.TrimSuffix(key, "/"))
+		if m.isFolderKey(key) {
+			name = name + "/"
+		}
+		objectLines = append(objectLines,
+			labelStyle.Render(fmt.Sprintf("Target: %s", name)),
+		)
+	} else {
+		objectLines = append(objectLines,
+			labelStyle.Render(fmt.Sprintf("Targets: %d selected", count)),
+		)
+		for i, key := range m.confirmTargetKeys {
+			if i >= 5 {
+				objectLines = append(objectLines,
+					labelStyle.Render(fmt.Sprintf("  ... and %d more", count-5)),
+				)
+				break
+			}
+			name := path.Base(strings.TrimSuffix(key, "/"))
+			if m.isFolderKey(key) {
+				name = name + "/"
+			}
+			objectLines = append(objectLines,
+				labelStyle.Render(fmt.Sprintf("  - %s", name)),
+			)
+		}
+	}
+
+	elements := []string{
+		warningStyle.Render(fmt.Sprintf("⚠ %s %s", actionName, itemType)),
+		"",
+	}
+	elements = append(elements, objectLines...)
+	elements = append(elements,
+		"",
+		labelStyle.Render(fmt.Sprintf("Type '%s' to confirm:", keyword)),
+		m.confirmInput.View(),
+		"",
+		lipgloss.NewStyle().Foreground(common.InfoColor).Render("esc: cancel | enter: confirm"),
+	)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, elements...)
+	return boxStyle.Render(content)
 }

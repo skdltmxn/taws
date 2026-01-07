@@ -184,6 +184,52 @@ func (c *S3Client) DownloadObject(ctx context.Context, bucket, key, destPath str
 	return nil
 }
 
+func (c *S3Client) DeleteObject(ctx context.Context, bucket, key string) error {
+	regionalClient, err := c.getClientForBucket(ctx, bucket)
+	if err != nil {
+		return err
+	}
+
+	_, err = regionalClient.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete object: %w", err)
+	}
+	return nil
+}
+
+func (c *S3Client) DeleteObjects(ctx context.Context, bucket string, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	regionalClient, err := c.getClientForBucket(ctx, bucket)
+	if err != nil {
+		return err
+	}
+
+	objects := make([]types.ObjectIdentifier, len(keys))
+	for i, key := range keys {
+		objects[i] = types.ObjectIdentifier{
+			Key: aws.String(key),
+		}
+	}
+
+	_, err = regionalClient.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+		Bucket: aws.String(bucket),
+		Delete: &types.Delete{
+			Objects: objects,
+			Quiet:   aws.Bool(true),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete objects: %w", err)
+	}
+	return nil
+}
+
 type progressReader struct {
 	r          io.Reader
 	total      int64

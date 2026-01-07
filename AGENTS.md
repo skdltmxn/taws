@@ -10,6 +10,7 @@ This document outlines the context, standards, and rules for AI Agents working o
 *   **Obsess Over Code Quality**: Adhere strictly to idiomatic Go practices and maintain high standards.
 *   **Concise & Readable**: Write code that is easy to understand and maintain.
 *   **English Only**: All code, comments, documentation, and commit messages must be in English.
+*   **Keep Docs Updated**: After making changes, update `README.md` and `docs/spec.md` as needed to reflect new behavior, UX, commands, or configuration.
 
 ## Architecture & Design
 
