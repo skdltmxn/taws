@@ -20,6 +20,7 @@ const (
 	ViewList ViewState = iota
 	ViewDetail
 	ViewConfirm
+	ViewYAML
 )
 
 type ConfirmAction int
@@ -48,11 +49,15 @@ type Model struct {
 	actionMsg    string
 	width        int
 	height       int
+	fullWidth    int
+	fullHeight   int
 
 	confirmAction    ConfirmAction
 	confirmInput     textinput.Model
 	confirmTargetIDs []string
 	prevState        ViewState
+
+	yamlView common.YAMLView
 }
 
 type instancesLoadedMsg []domain.EC2Instance
@@ -100,6 +105,7 @@ func NewModel(a *app.App) Model {
 		selectedIDs:  make(map[string]struct{}),
 		search:       common.NewTableSearch(),
 		confirmInput: ci,
+		yamlView:     common.NewYAMLView(),
 	}
 }
 
@@ -141,6 +147,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		m.actionMsg = ""
+
+		if m.state == ViewYAML {
+			var exit bool
+			m.yamlView, cmd, exit = m.yamlView.Update(msg)
+			if exit {
+				m.state = ViewList
+				return m, nil
+			}
+			return m, cmd
+		}
 
 		if m.state == ViewConfirm {
 			return m.handleConfirmInput(msg)
@@ -232,6 +248,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m.handleListRebootAction()
 		case "T":
 			return m.handleListAction(ActionTerminate, "")
+		case "y":
+			return m.showYAMLView()
 		default:
 			if common.HandleTableNavKeys(&m.table, msg.String()) {
 				return m, nil
@@ -248,6 +266,7 @@ func (m Model) SetSize(width, height int) Model {
 	m.height = height
 	m.table.SetHeight(height - 5)
 	m.search = m.search.SetWidth(width)
+	m.yamlView = m.yamlView.SetSize(width, height)
 
 	// Dynamically adjust column widths to fill available space
 	// Table cell padding: 10 columns × 2 (left+right) = 20
@@ -301,12 +320,44 @@ func (m Model) SetSize(width, height int) Model {
 	return m
 }
 
+func (m Model) SetFullscreenSize(width, height int) Model {
+	m.fullWidth = width
+	m.fullHeight = height
+	m.yamlView = m.yamlView.SetFullscreenSize(width, height)
+	return m
+}
+
+func (m Model) IsFullscreen() bool {
+	return m.state == ViewYAML && m.yamlView.IsFullscreen()
+}
+
+func (m Model) FullscreenView() string {
+	return m.yamlView.View()
+}
+
+func (m Model) showYAMLView() (Model, tea.Cmd) {
+	idx := m.table.Cursor()
+	if idx < 0 || idx >= len(m.instances) {
+		return m, nil
+	}
+
+	inst := &m.instances[idx]
+	title := fmt.Sprintf("EC2 Instance: %s", common.DisplayValue(inst.Name))
+	m.yamlView = m.yamlView.SetContent(title, inst)
+	m.state = ViewYAML
+	return m, nil
+}
+
 func (m Model) View() string {
 	if m.err != nil {
 		return common.RenderError(m.err)
 	}
 	if m.loading && !m.loaded {
 		return "Loading EC2 instances..."
+	}
+
+	if m.state == ViewYAML {
+		return m.yamlView.View()
 	}
 
 	if m.state == ViewConfirm {
@@ -333,7 +384,7 @@ func (m Model) renderListView() string {
 	}
 
 	indicator := m.search.Indicator()
-	tips := "enter: detail | s: stop | S: start | R: reboot | T: terminate | r: refresh | /: search | space: select"
+	tips := "enter: detail | s: stop | S: start | R: reboot | T: terminate | y: yaml | r: refresh | /: search | space: select"
 	if indicator != "" {
 		tips = indicator + " | " + tips
 	}

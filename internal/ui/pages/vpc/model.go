@@ -18,6 +18,7 @@ type ViewState int
 const (
 	ViewVPCs ViewState = iota
 	ViewSubnets
+	ViewYAML
 )
 
 type Model struct {
@@ -36,6 +37,10 @@ type Model struct {
 	err        error
 	width      int
 	height     int
+	fullWidth  int
+	fullHeight int
+
+	yamlView common.YAMLView
 }
 
 type vpcsLoadedMsg []domain.VPC
@@ -63,6 +68,7 @@ func NewModel(a *app.App) Model {
 		selectedV: make(map[string]struct{}),
 		selectedS: make(map[string]struct{}),
 		search:    common.NewTableSearch(),
+		yamlView:  common.NewYAMLView(),
 	}
 }
 
@@ -95,6 +101,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.state == ViewYAML {
+			var exit bool
+			m.yamlView, cmd, exit = m.yamlView.Update(msg)
+			if exit {
+				m.state = ViewSubnets
+				return m, nil
+			}
+			return m, cmd
+		}
+
 		if m.search.Active {
 			switch msg.String() {
 			case "esc":
@@ -147,6 +163,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 					m.table.SetRows(nil)
 					return m, m.fetchSubnets(m.currentVPC)
 				}
+			}
+		case "y":
+			if m.state == ViewSubnets {
+				return m.showYAMLView()
 			}
 		case "backspace", "delete", "esc":
 			if m.state == ViewSubnets {
@@ -237,7 +257,47 @@ func (m Model) SetSize(width, height int) Model {
 			{Title: "State", Width: minState},
 		})
 	}
+	m.yamlView = m.yamlView.SetSize(width, height)
 	return m
+}
+
+func (m Model) SetFullscreenSize(width, height int) Model {
+	m.fullWidth = width
+	m.fullHeight = height
+	m.yamlView = m.yamlView.SetFullscreenSize(width, height)
+	return m
+}
+
+func (m Model) IsFullscreen() bool {
+	return m.state == ViewYAML && m.yamlView.IsFullscreen()
+}
+
+func (m Model) FullscreenView() string {
+	return m.yamlView.View()
+}
+
+func (m Model) showYAMLView() (Model, tea.Cmd) {
+	idx := m.table.Cursor()
+	if idx < 0 || idx >= len(m.visibleSub) {
+		return m, nil
+	}
+
+	subnetID := m.visibleSub[idx]
+	var subnet *domain.Subnet
+	for i := range m.subnets {
+		if m.subnets[i].ID == subnetID {
+			subnet = &m.subnets[i]
+			break
+		}
+	}
+	if subnet == nil {
+		return m, nil
+	}
+
+	title := fmt.Sprintf("Subnet: %s", common.DisplayValue(subnet.Name))
+	m.yamlView = m.yamlView.SetContent(title, subnet)
+	m.state = ViewYAML
+	return m, nil
 }
 
 func (m Model) View() string {
@@ -246,7 +306,7 @@ func (m Model) View() string {
 	}
 
 	header := "VPCs"
-	if m.state == ViewSubnets {
+	if m.state == ViewSubnets || m.state == ViewYAML {
 		header = fmt.Sprintf("Subnets in VPC %s", m.currentVPC)
 	}
 
@@ -254,9 +314,13 @@ func (m Model) View() string {
 		return common.RenderLoading(header)
 	}
 
+	if m.state == ViewYAML {
+		return m.yamlView.View()
+	}
+
 	tips := "enter: view subnets | r: refresh | j/k: navigate"
 	if m.state == ViewSubnets {
-		tips = "backspace: back to VPCs | r: refresh | j/k: navigate"
+		tips = "backspace: back to VPCs | y: yaml | r: refresh | j/k: navigate"
 	}
 	tips = tips + " | space: select"
 	indicator := m.search.Indicator()

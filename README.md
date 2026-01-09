@@ -4,15 +4,16 @@
 
 ## Key Features
 
-*   **Unified Interface**: Navigate EC2, S3, EKS, ECR, IAM, Route53, and VPC resources in a single TUI.
+*   **Unified Interface**: Navigate EC2, S3, EKS, ECR, IAM, Route53, VPC, and CloudWatch resources in a single TUI.
 *   **Vim-Style Navigation**: Use `j`, `k`, `g`, `G`, `/` for efficient browsing.
 *   **Multi-Account & Region Support**: Switch AWS profiles (including SSO) and regions at runtime without restarting.
 *   **Resource Management**:
     *   **EC2**: Start, stop, reboot, and terminate instances with confirmation prompts for destructive actions.
     *   **S3**: Browse buckets/objects, download files with progress tracking, and delete objects/folders.
-    *   **Containers**: Inspect EKS clusters and ECR repositories.
-    *   **Networking**: View VPCs, subnets, and Route53 hosted zones.
-    *   **IAM**: List users and their details.
+    *   **Containers**: Inspect EKS clusters/nodegroups and ECR repositories/images.
+    *   **Networking**: View VPCs, subnets, and Route53 hosted zones/records.
+    *   **IAM**: List users and roles.
+    *   **CloudWatch**: Browse log groups and tail log events in real-time.
 *   **Command Palette**: Quickly jump to resources using `:`.
 *   **Theming**: Custom color themes via JSON configuration.
 *   **Cross-Platform**: Works on Linux, macOS, and Windows.
@@ -71,7 +72,8 @@ If your SSO session is expired, `taws` will attempt to refresh it automatically.
 | `g` / `G` | Go to Top / Bottom |
 | `enter` | Select / View Details |
 | `esc` / `backspace` | Go Back / Clear Filter |
-| `tab` | Switch Tabs (in Profiles view) |
+| `y` | Show YAML View (at deepest level) |
+| `tab` | Switch Tabs (in Profiles/IAM view) |
 | `ctrl+c` | Quit |
 
 ### Resource Specific
@@ -81,7 +83,9 @@ If your SSO session is expired, `taws` will attempt to refresh it automatically.
 *   **S3**: `d` (Download Object), `x` (Delete Object/Folder), `c` (Cancel Download)
     *   Delete requires typing confirmation keyword (`delete`)
     *   Folder deletion recursively removes all contents
+*   **CloudWatch**: `c` (Stop tailing and go back)
 *   **Selection**: `space` (Toggle selection)
+*   **YAML View**: `j`/`k` (scroll), `g`/`G` (top/bottom), `ctrl+d`/`ctrl+u` (half page), `f` (fullscreen toggle), `esc`/`q` (back)
 
 ## Configuration & Themes
 

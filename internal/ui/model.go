@@ -215,6 +215,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.route53Model = m.route53Model.SetSize(contentWidth, contentHeight)
 		m.cloudwatchModel = m.cloudwatchModel.SetSize(contentWidth, contentHeight)
 		m.profilesModel = m.profilesModel.SetSize(contentWidth, contentHeight)
+
+		m.ec2Model = m.ec2Model.SetFullscreenSize(m.width, m.height)
+		m.s3Model = m.s3Model.SetFullscreenSize(m.width, m.height)
+		m.vpcModel = m.vpcModel.SetFullscreenSize(m.width, m.height)
+		m.eksModel = m.eksModel.SetFullscreenSize(m.width, m.height)
+		m.ecrModel = m.ecrModel.SetFullscreenSize(m.width, m.height)
+		m.iamModel = m.iamModel.SetFullscreenSize(m.width, m.height)
+		m.route53Model = m.route53Model.SetFullscreenSize(m.width, m.height)
+		m.cloudwatchModel = m.cloudwatchModel.SetFullscreenSize(m.width, m.height)
 	}
 
 	switch m.currentPage {
@@ -314,6 +323,10 @@ func (m Model) View() string {
 		return m.renderHelp()
 	}
 
+	if fs := m.getFullscreenView(); fs != "" {
+		return fs
+	}
+
 	headerView := m.renderHeader()
 	content := m.renderContent()
 	statusBar := m.renderStatusBar()
@@ -332,6 +345,44 @@ func (m Model) View() string {
 	}
 
 	return mainView
+}
+
+func (m Model) getFullscreenView() string {
+	switch m.currentPage {
+	case PageEC2:
+		if m.ec2Model.IsFullscreen() {
+			return m.ec2Model.FullscreenView()
+		}
+	case PageS3:
+		if m.s3Model.IsFullscreen() {
+			return m.s3Model.FullscreenView()
+		}
+	case PageVPC:
+		if m.vpcModel.IsFullscreen() {
+			return m.vpcModel.FullscreenView()
+		}
+	case PageEKS:
+		if m.eksModel.IsFullscreen() {
+			return m.eksModel.FullscreenView()
+		}
+	case PageECR:
+		if m.ecrModel.IsFullscreen() {
+			return m.ecrModel.FullscreenView()
+		}
+	case PageIAM:
+		if m.iamModel.IsFullscreen() {
+			return m.iamModel.FullscreenView()
+		}
+	case PageRoute53:
+		if m.route53Model.IsFullscreen() {
+			return m.route53Model.FullscreenView()
+		}
+	case PageCloudWatch:
+		if m.cloudwatchModel.IsFullscreen() {
+			return m.cloudwatchModel.FullscreenView()
+		}
+	}
+	return ""
 }
 
 func (m Model) renderHeader() string {

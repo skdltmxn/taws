@@ -209,6 +209,7 @@ taws uses a k9s-inspired layout:
 | `enter` | Select / Open |
 | `backspace` / `esc` | Go back (and clears active filter, if any) |
 | `r` | Refresh |
+| `y` | Show YAML view of selected resource (at deepest level) |
 
 #### EC2 Actions (List & Detail View)
 | Key | Action |
@@ -234,6 +235,17 @@ taws uses a k9s-inspired layout:
 | `c` | Cancel download (while downloading) |
 
 **Note**: Delete action requires typing `delete` to confirm. Folder deletion recursively deletes all contents. Multi-select with `space` is supported for batch operations.
+
+#### YAML View (All Detail Views)
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Scroll up/down |
+| `g` / `G` | Go to top/bottom |
+| `ctrl+d` / `ctrl+u` | Half page down/up |
+| `f` | Toggle fullscreen (hides all UI, shows only YAML data) |
+| `esc` / `backspace` / `q` | Return to list view (or exit fullscreen first) |
+
+**Note**: Press `y` on any resource at the deepest navigation level (e.g., EC2 instances, S3 objects, ECR images, VPC subnets, EKS nodegroups, IAM users/roles, Route53 records, CloudWatch log events) to view its details in YAML format. Press `f` to toggle fullscreen mode for easier copying of data.
 
 ### Command Palette Commands
 | Alias | Name |

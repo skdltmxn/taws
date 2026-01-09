@@ -20,6 +20,13 @@ const (
 	TabRoles
 )
 
+type ViewState int
+
+const (
+	ViewList ViewState = iota
+	ViewYAML
+)
+
 type Model struct {
 	app *app.App
 
@@ -34,12 +41,17 @@ type Model struct {
 	selectedRole map[string]struct{}
 
 	activeTab    Tab
+	state        ViewState
 	search       common.TableSearch
 	loadingUsers bool
 	loadingRoles bool
 	err          error
 	width        int
 	height       int
+	fullWidth    int
+	fullHeight   int
+
+	yamlView common.YAMLView
 }
 
 type usersLoadedMsg []domain.IAMUser
@@ -78,9 +90,11 @@ func NewModel(a *app.App) Model {
 		userTable:    ut,
 		roleTable:    rt,
 		activeTab:    TabUsers,
+		state:        ViewList,
 		selectedUser: make(map[string]struct{}),
 		selectedRole: make(map[string]struct{}),
 		search:       common.NewTableSearch(),
+		yamlView:     common.NewYAMLView(),
 	}
 }
 
@@ -112,6 +126,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.state == ViewYAML {
+			var exit bool
+			m.yamlView, cmd, exit = m.yamlView.Update(msg)
+			if exit {
+				m.state = ViewList
+				return m, nil
+			}
+			return m, cmd
+		}
+
 		if m.search.Active {
 			switch msg.String() {
 			case "esc":
@@ -176,6 +200,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			m.loadingRoles = true
 			return m, m.fetchRoles
+		case "y":
+			return m.showYAMLView()
 		}
 	}
 
@@ -198,11 +224,11 @@ func (m Model) SetSize(width, height int) Model {
 	// Table cell padding: 4 columns × 2 = 8
 	const (
 		cellPadding = 8
-		minName    = 18
-		maxName    = 25
-		minID      = 22
-		minCreated = 22
-		minARN     = 40
+		minName     = 18
+		maxName     = 25
+		minID       = 22
+		minCreated  = 22
+		minARN      = 40
 	)
 	available := width - cellPadding
 	if available < minName+minID+minCreated+minARN {
@@ -233,12 +259,74 @@ func (m Model) SetSize(width, height int) Model {
 		{Title: "Created Date", Width: createdWidth},
 		{Title: "ARN", Width: arnWidth},
 	})
+	m.yamlView = m.yamlView.SetSize(width, height)
 	return m
+}
+
+func (m Model) SetFullscreenSize(width, height int) Model {
+	m.fullWidth = width
+	m.fullHeight = height
+	m.yamlView = m.yamlView.SetFullscreenSize(width, height)
+	return m
+}
+
+func (m Model) IsFullscreen() bool {
+	return m.state == ViewYAML && m.yamlView.IsFullscreen()
+}
+
+func (m Model) FullscreenView() string {
+	return m.yamlView.View()
+}
+
+func (m Model) showYAMLView() (Model, tea.Cmd) {
+	if m.activeTab == TabUsers {
+		idx := m.userTable.Cursor()
+		if idx < 0 || idx >= len(m.visibleUsers) {
+			return m, nil
+		}
+		userName := m.visibleUsers[idx]
+		var user *domain.IAMUser
+		for i := range m.users {
+			if m.users[i].UserName == userName {
+				user = &m.users[i]
+				break
+			}
+		}
+		if user == nil {
+			return m, nil
+		}
+		title := fmt.Sprintf("IAM User: %s", user.UserName)
+		m.yamlView = m.yamlView.SetContent(title, user)
+	} else {
+		idx := m.roleTable.Cursor()
+		if idx < 0 || idx >= len(m.visibleRoles) {
+			return m, nil
+		}
+		roleName := m.visibleRoles[idx]
+		var role *domain.IAMRole
+		for i := range m.roles {
+			if m.roles[i].RoleName == roleName {
+				role = &m.roles[i]
+				break
+			}
+		}
+		if role == nil {
+			return m, nil
+		}
+		title := fmt.Sprintf("IAM Role: %s", role.RoleName)
+		m.yamlView = m.yamlView.SetContent(title, role)
+	}
+	m.state = ViewYAML
+	return m, nil
 }
 
 func (m Model) View() string {
 	if m.err != nil {
 		return common.RenderError(m.err)
+	}
+
+	if m.state == ViewYAML {
+		return m.yamlView.View()
 	}
 
 	// Tab headers
@@ -271,7 +359,7 @@ func (m Model) View() string {
 	}
 
 	indicator := m.search.Indicator()
-	tips := "tab: switch tab | r: refresh | /: search | space: select | j/k: navigate"
+	tips := "tab: switch tab | y: yaml | r: refresh | /: search | space: select | j/k: navigate"
 	if indicator != "" {
 		tips = indicator + " | " + tips
 	}

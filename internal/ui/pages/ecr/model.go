@@ -19,6 +19,7 @@ type ViewState int
 const (
 	ViewRepos ViewState = iota
 	ViewTags
+	ViewYAML
 )
 
 type Model struct {
@@ -37,6 +38,10 @@ type Model struct {
 	err           error
 	width         int
 	height        int
+	fullWidth     int
+	fullHeight    int
+
+	yamlView common.YAMLView
 }
 
 type reposLoadedMsg []domain.Repository
@@ -65,6 +70,7 @@ func NewModel(a *app.App) Model {
 		selectedRepo: make(map[string]struct{}),
 		selectedTag:  make(map[string]struct{}),
 		search:       common.NewTableSearch(),
+		yamlView:     common.NewYAMLView(),
 	}
 }
 
@@ -99,6 +105,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.state == ViewYAML {
+			var exit bool
+			m.yamlView, cmd, exit = m.yamlView.Update(msg)
+			if exit {
+				m.state = ViewTags
+				return m, nil
+			}
+			return m, cmd
+		}
+
 		if m.search.Active {
 			switch msg.String() {
 			case "esc":
@@ -151,6 +167,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 					m = m.SetSize(m.width, m.height)
 					return m, m.fetchTags(m.currentRepo)
 				}
+			}
+		case "y":
+			if m.state == ViewTags {
+				return m.showYAMLView()
 			}
 		case "backspace", "delete", "esc":
 			if m.state == ViewTags {
@@ -242,7 +262,47 @@ func (m Model) SetSize(width, height int) Model {
 		{Title: "Mut", Width: mutWidth},
 		{Title: "Created", Width: createdWidth},
 	})
+	m.yamlView = m.yamlView.SetSize(width, height)
 	return m
+}
+
+func (m Model) SetFullscreenSize(width, height int) Model {
+	m.fullWidth = width
+	m.fullHeight = height
+	m.yamlView = m.yamlView.SetFullscreenSize(width, height)
+	return m
+}
+
+func (m Model) IsFullscreen() bool {
+	return m.state == ViewYAML && m.yamlView.IsFullscreen()
+}
+
+func (m Model) FullscreenView() string {
+	return m.yamlView.View()
+}
+
+func (m Model) showYAMLView() (Model, tea.Cmd) {
+	idx := m.table.Cursor()
+	if idx < 0 || idx >= len(m.visibleTagID) {
+		return m, nil
+	}
+
+	tagID := m.visibleTagID[idx]
+	var tag *domain.ECRImageTag
+	for i := range m.tags {
+		if m.tags[i].ID == tagID {
+			tag = &m.tags[i]
+			break
+		}
+	}
+	if tag == nil {
+		return m, nil
+	}
+
+	title := fmt.Sprintf("ECR Image: %s:%s", m.currentRepo, tag.Tag)
+	m.yamlView = m.yamlView.SetContent(title, tag)
+	m.state = ViewYAML
+	return m, nil
 }
 
 func (m Model) View() string {
@@ -251,7 +311,7 @@ func (m Model) View() string {
 	}
 
 	header := "ECR Repositories"
-	if m.state == ViewTags {
+	if m.state == ViewTags || m.state == ViewYAML {
 		header = fmt.Sprintf("Image Tags in %s", m.currentRepo)
 	}
 
@@ -259,12 +319,16 @@ func (m Model) View() string {
 		return common.RenderLoading(header)
 	}
 
+	if m.state == ViewYAML {
+		return m.yamlView.View()
+	}
+
 	indicator := m.search.Indicator()
 	tips := "r: refresh | /: search | space: select | j/k: navigate"
 	if m.state == ViewRepos {
 		tips = "enter: view tags | " + tips
 	} else {
-		tips = "backspace: back | " + tips
+		tips = "backspace: back | y: yaml | " + tips
 	}
 	if indicator != "" {
 		tips = indicator + " | " + tips

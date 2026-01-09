@@ -18,6 +18,7 @@ type ViewState int
 const (
 	ViewZones ViewState = iota
 	ViewRecords
+	ViewYAML
 )
 
 type Model struct {
@@ -37,6 +38,10 @@ type Model struct {
 	err             error
 	width           int
 	height          int
+	fullWidth       int
+	fullHeight      int
+
+	yamlView common.YAMLView
 }
 
 type zonesLoadedMsg []domain.HostedZone
@@ -63,6 +68,7 @@ func NewModel(a *app.App) Model {
 		selectedZone:   make(map[string]struct{}),
 		selectedRecord: make(map[string]struct{}),
 		search:         common.NewTableSearch(),
+		yamlView:       common.NewYAMLView(),
 	}
 }
 
@@ -97,6 +103,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.state == ViewYAML {
+			var exit bool
+			m.yamlView, cmd, exit = m.yamlView.Update(msg)
+			if exit {
+				m.state = ViewRecords
+				return m, nil
+			}
+			return m, cmd
+		}
+
 		if m.search.Active {
 			switch msg.String() {
 			case "esc":
@@ -150,6 +166,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 					m = m.SetSize(m.width, m.height)
 					return m, m.fetchRecords(m.currentZoneID)
 				}
+			}
+		case "y":
+			if m.state == ViewRecords {
+				return m.showYAMLView()
 			}
 		case "backspace", "delete", "esc":
 			if m.state == ViewRecords {
@@ -237,7 +257,47 @@ func (m Model) SetSize(width, height int) Model {
 		{Title: "ID", Width: idWidth},
 		{Title: "Record Count", Width: countWidth},
 	})
+	m.yamlView = m.yamlView.SetSize(width, height)
 	return m
+}
+
+func (m Model) SetFullscreenSize(width, height int) Model {
+	m.fullWidth = width
+	m.fullHeight = height
+	m.yamlView = m.yamlView.SetFullscreenSize(width, height)
+	return m
+}
+
+func (m Model) IsFullscreen() bool {
+	return m.state == ViewYAML && m.yamlView.IsFullscreen()
+}
+
+func (m Model) FullscreenView() string {
+	return m.yamlView.View()
+}
+
+func (m Model) showYAMLView() (Model, tea.Cmd) {
+	idx := m.table.Cursor()
+	if idx < 0 || idx >= len(m.visibleRecordID) {
+		return m, nil
+	}
+
+	recordID := m.visibleRecordID[idx]
+	var record *domain.Route53RecordSet
+	for i := range m.records {
+		if m.records[i].ID == recordID {
+			record = &m.records[i]
+			break
+		}
+	}
+	if record == nil {
+		return m, nil
+	}
+
+	title := fmt.Sprintf("Route53 Record: %s (%s)", record.Name, record.Type)
+	m.yamlView = m.yamlView.SetContent(title, record)
+	m.state = ViewYAML
+	return m, nil
 }
 
 func (m Model) View() string {
@@ -246,7 +306,7 @@ func (m Model) View() string {
 	}
 
 	header := "Route53 Hosted Zones"
-	if m.state == ViewRecords {
+	if m.state == ViewRecords || m.state == ViewYAML {
 		header = fmt.Sprintf("Records in %s", m.currentZoneName)
 	}
 
@@ -254,12 +314,16 @@ func (m Model) View() string {
 		return common.RenderLoading(header)
 	}
 
+	if m.state == ViewYAML {
+		return m.yamlView.View()
+	}
+
 	indicator := m.search.Indicator()
 	tips := "r: refresh | /: search | space: select | j/k: navigate"
 	if m.state == ViewZones {
 		tips = "enter: view records | " + tips
 	} else {
-		tips = "backspace: back | " + tips
+		tips = "backspace: back | y: yaml | " + tips
 	}
 	if indicator != "" {
 		tips = indicator + " | " + tips

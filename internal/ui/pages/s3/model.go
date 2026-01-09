@@ -25,6 +25,7 @@ const (
 	ViewBuckets ViewState = iota
 	ViewObjects
 	ViewConfirm
+	ViewYAML
 )
 
 type ConfirmAction int
@@ -66,11 +67,15 @@ type Model struct {
 	err            error
 	width          int
 	height         int
+	fullWidth      int
+	fullHeight     int
 
 	confirmAction     ConfirmAction
 	confirmInput      textinput.Model
 	confirmTargetKeys []string
 	prevState         ViewState
+
+	yamlView common.YAMLView
 }
 
 type bucketsLoadedMsg []domain.Bucket
@@ -136,6 +141,7 @@ func NewModel(a *app.App) Model {
 		downloading:    false,
 		downloadCancel: nil,
 		confirmInput:   ci,
+		yamlView:       common.NewYAMLView(),
 	}
 }
 
@@ -218,6 +224,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyMsg:
 		m.message = ""
 		m.messageIsErr = false
+
+		if m.state == ViewYAML {
+			var exit bool
+			m.yamlView, cmd, exit = m.yamlView.Update(msg)
+			if exit {
+				m.state = ViewObjects
+				return m, nil
+			}
+			return m, cmd
+		}
 
 		if m.state == ViewConfirm {
 			return m.handleConfirmInput(msg)
@@ -337,6 +353,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.state == ViewObjects {
 				return m.openDeleteConfirm()
 			}
+		case "y":
+			if m.state == ViewObjects {
+				return m.showYAMLView()
+			}
 		case "backspace", "esc":
 			if m.state == ViewObjects {
 				if m.prefix == "" {
@@ -433,7 +453,47 @@ func (m Model) SetSize(width, height int) Model {
 			{Title: "Creation Date", Width: dateWidth},
 		})
 	}
+	m.yamlView = m.yamlView.SetSize(width, height)
 	return m
+}
+
+func (m Model) SetFullscreenSize(width, height int) Model {
+	m.fullWidth = width
+	m.fullHeight = height
+	m.yamlView = m.yamlView.SetFullscreenSize(width, height)
+	return m
+}
+
+func (m Model) IsFullscreen() bool {
+	return m.state == ViewYAML && m.yamlView.IsFullscreen()
+}
+
+func (m Model) FullscreenView() string {
+	return m.yamlView.View()
+}
+
+func (m Model) showYAMLView() (Model, tea.Cmd) {
+	idx := m.table.Cursor()
+	if idx < 0 || idx >= len(m.visibleObject) {
+		return m, nil
+	}
+
+	key := m.visibleObject[idx]
+	var obj *domain.S3Object
+	for i := range m.objects {
+		if m.objects[i].Key == key {
+			obj = &m.objects[i]
+			break
+		}
+	}
+	if obj == nil || obj.IsFolder {
+		return m, nil
+	}
+
+	title := fmt.Sprintf("S3 Object: %s", path.Base(obj.Key))
+	m.yamlView = m.yamlView.SetContent(title, obj)
+	m.state = ViewYAML
+	return m, nil
 }
 
 func (m Model) View() string {
@@ -442,12 +502,16 @@ func (m Model) View() string {
 	}
 
 	header := "S3 Buckets"
-	if m.state == ViewObjects || m.state == ViewConfirm {
+	if m.state == ViewObjects || m.state == ViewConfirm || m.state == ViewYAML {
 		header = fmt.Sprintf("S3://%s/%s", m.currentBucket, m.prefix)
 	}
 
 	if m.loading {
 		return common.RenderLoading(header)
+	}
+
+	if m.state == ViewYAML {
+		return m.yamlView.View()
 	}
 
 	if m.state == ViewConfirm {
@@ -461,7 +525,7 @@ func (m Model) View() string {
 func (m Model) renderObjectsView(header string) string {
 	tips := "enter: open | esc/backspace: back | r: refresh | j/k: navigate | /: search | space: select"
 	if m.state == ViewObjects || m.state == ViewConfirm {
-		tips = tips + " | d: download | x: delete"
+		tips = tips + " | d: download | x: delete | y: yaml"
 	}
 	if m.downloading {
 		tips = tips + " | c: cancel"

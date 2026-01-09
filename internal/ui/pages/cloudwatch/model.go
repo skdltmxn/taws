@@ -19,6 +19,7 @@ type ViewState int
 const (
 	ViewLogGroups ViewState = iota
 	ViewTail
+	ViewYAML
 )
 
 type Model struct {
@@ -43,9 +44,13 @@ type Model struct {
 	err          error
 	width        int
 	height       int
+	fullWidth    int
+	fullHeight   int
 	tailing      bool
 	tailFetching bool
 	lastEventAt  time.Time
+
+	yamlView common.YAMLView
 }
 
 type logGroupsLoadedMsg []domain.CloudWatchLogGroup
@@ -73,6 +78,7 @@ func NewModel(a *app.App) Model {
 		selectedEvent: make(map[string]struct{}),
 		seenEvent:     make(map[string]struct{}),
 		search:        common.NewTableSearch(),
+		yamlView:      common.NewYAMLView(),
 	}
 }
 
@@ -150,6 +156,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.state == ViewYAML {
+			var exit bool
+			m.yamlView, cmd, exit = m.yamlView.Update(msg)
+			if exit {
+				m.state = ViewTail
+				return m, nil
+			}
+			return m, cmd
+		}
+
 		if m.search.Active {
 			switch msg.String() {
 			case "esc":
@@ -221,6 +237,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 					)
 				}
 			}
+		case "y":
+			if m.state == ViewTail {
+				return m.showYAMLView()
+			}
 		case "c", "backspace", "delete", "esc":
 			if m.state == ViewTail {
 				m.state = ViewLogGroups
@@ -291,7 +311,47 @@ func (m Model) SetSize(width, height int) Model {
 		{Title: "Retention", Width: minRetention},
 		{Title: "Stored", Width: minStored},
 	})
+	m.yamlView = m.yamlView.SetSize(width, height)
 	return m
+}
+
+func (m Model) SetFullscreenSize(width, height int) Model {
+	m.fullWidth = width
+	m.fullHeight = height
+	m.yamlView = m.yamlView.SetFullscreenSize(width, height)
+	return m
+}
+
+func (m Model) IsFullscreen() bool {
+	return m.state == ViewYAML && m.yamlView.IsFullscreen()
+}
+
+func (m Model) FullscreenView() string {
+	return m.yamlView.View()
+}
+
+func (m Model) showYAMLView() (Model, tea.Cmd) {
+	idx := m.table.Cursor()
+	if idx < 0 || idx >= len(m.visibleEventID) {
+		return m, nil
+	}
+
+	eventID := m.visibleEventID[idx]
+	var event *domain.CloudWatchLogEvent
+	for i := range m.events {
+		if eventKey(m.events[i]) == eventID {
+			event = &m.events[i]
+			break
+		}
+	}
+	if event == nil {
+		return m, nil
+	}
+
+	title := fmt.Sprintf("CloudWatch Log Event: %s", shortStreamName(event.LogStreamName))
+	m.yamlView = m.yamlView.SetContent(title, event)
+	m.state = ViewYAML
+	return m, nil
 }
 
 func (m Model) View() string {
@@ -300,7 +360,7 @@ func (m Model) View() string {
 	}
 
 	header := "CloudWatch Logs"
-	if m.state == ViewTail {
+	if m.state == ViewTail || m.state == ViewYAML {
 		header = fmt.Sprintf("Tail: %s", m.currentGroup)
 	}
 
@@ -308,12 +368,16 @@ func (m Model) View() string {
 		return common.RenderLoading(header)
 	}
 
+	if m.state == ViewYAML {
+		return m.yamlView.View()
+	}
+
 	indicator := m.search.Indicator()
 	tips := "r: refresh | /: search | space: select | j/k: navigate"
 	if m.state == ViewLogGroups {
 		tips = "enter: tail | " + tips
 	} else {
-		tips = "c/backspace: back | " + tips
+		tips = "c/backspace: back | y: yaml | " + tips
 		if m.tailing {
 			tips = "tailing | " + tips
 		}
@@ -564,4 +628,3 @@ func formatBytes(b int64) string {
 	}
 	return fmt.Sprintf("%.1f %s", f, suffixes[i-1])
 }
-

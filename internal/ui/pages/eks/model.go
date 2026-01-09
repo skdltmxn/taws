@@ -18,6 +18,7 @@ type ViewState int
 const (
 	ViewClusters ViewState = iota
 	ViewNodegroups
+	ViewYAML
 )
 
 type Model struct {
@@ -36,6 +37,10 @@ type Model struct {
 	err             error
 	width           int
 	height          int
+	fullWidth       int
+	fullHeight      int
+
+	yamlView common.YAMLView
 }
 
 type clustersLoadedMsg []domain.EKSCluster
@@ -63,6 +68,7 @@ func NewModel(a *app.App) Model {
 		selectedCluster: make(map[string]struct{}),
 		selectedNG:      make(map[string]struct{}),
 		search:          common.NewTableSearch(),
+		yamlView:        common.NewYAMLView(),
 	}
 }
 
@@ -97,6 +103,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.state == ViewYAML {
+			var exit bool
+			m.yamlView, cmd, exit = m.yamlView.Update(msg)
+			if exit {
+				m.state = ViewNodegroups
+				return m, nil
+			}
+			return m, cmd
+		}
+
 		if m.search.Active {
 			switch msg.String() {
 			case "esc":
@@ -149,6 +165,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 					m = m.SetSize(m.width, m.height)
 					return m, m.fetchNodegroups(m.currentCluster)
 				}
+			}
+		case "y":
+			if m.state == ViewNodegroups {
+				return m.showYAMLView()
 			}
 		case "backspace", "delete", "esc":
 			if m.state == ViewNodegroups {
@@ -240,7 +260,47 @@ func (m Model) SetSize(width, height int) Model {
 		{Title: "Status", Width: statusWidth},
 		{Title: "Created At", Width: createdWidth},
 	})
+	m.yamlView = m.yamlView.SetSize(width, height)
 	return m
+}
+
+func (m Model) SetFullscreenSize(width, height int) Model {
+	m.fullWidth = width
+	m.fullHeight = height
+	m.yamlView = m.yamlView.SetFullscreenSize(width, height)
+	return m
+}
+
+func (m Model) IsFullscreen() bool {
+	return m.state == ViewYAML && m.yamlView.IsFullscreen()
+}
+
+func (m Model) FullscreenView() string {
+	return m.yamlView.View()
+}
+
+func (m Model) showYAMLView() (Model, tea.Cmd) {
+	idx := m.table.Cursor()
+	if idx < 0 || idx >= len(m.visibleNG) {
+		return m, nil
+	}
+
+	ngName := m.visibleNG[idx]
+	var ng *domain.EKSNodegroup
+	for i := range m.nodegroups {
+		if m.nodegroups[i].Name == ngName {
+			ng = &m.nodegroups[i]
+			break
+		}
+	}
+	if ng == nil {
+		return m, nil
+	}
+
+	title := fmt.Sprintf("EKS Nodegroup: %s", ng.Name)
+	m.yamlView = m.yamlView.SetContent(title, ng)
+	m.state = ViewYAML
+	return m, nil
 }
 
 func (m Model) View() string {
@@ -249,7 +309,7 @@ func (m Model) View() string {
 	}
 
 	header := "EKS Clusters"
-	if m.state == ViewNodegroups {
+	if m.state == ViewNodegroups || m.state == ViewYAML {
 		header = fmt.Sprintf("Nodegroups in %s", m.currentCluster)
 	}
 
@@ -257,12 +317,16 @@ func (m Model) View() string {
 		return common.RenderLoading(header)
 	}
 
+	if m.state == ViewYAML {
+		return m.yamlView.View()
+	}
+
 	indicator := m.search.Indicator()
 	tips := "r: refresh | /: search | space: select | j/k: navigate"
 	if m.state == ViewClusters {
 		tips = "enter: view nodegroups | " + tips
 	} else {
-		tips = "backspace: back | " + tips
+		tips = "backspace: back | y: yaml | " + tips
 	}
 	if indicator != "" {
 		tips = indicator + " | " + tips
