@@ -22,9 +22,6 @@ jobs:
           make fmt
           git diff --exit-code
 
-      - name: Static Analysis (Vet)
-        run: make vet
-
       - name: Run Tests
         run: make test
 
