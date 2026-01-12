@@ -1,0 +1,45 @@
+version: 2
+project_name: taws
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    main: ./cmd/taws
+    binary: taws
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/skdltmxn/taws/internal/buildinfo.Version={{.Tag}}
+      - -X github.com/skdltmxn/taws/internal/buildinfo.Commit={{.ShortCommit}}
+      - -X github.com/skdltmxn/taws/internal/buildinfo.Date={{.Date}}
+
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: 'checksums.sha256'
+
+snapshot:
+  name_template: "{{ .Tag }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
