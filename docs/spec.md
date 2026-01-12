@@ -1,4 +1,4 @@
-# AWS TUI Console (taws) Development Plan
+# AWS TUI Console (taws) Product Specification
 
 ## 1. Architecture & Design Principles
 
@@ -32,6 +32,7 @@ We adopt a **Clean Architecture** approach to ensure separation of concerns and 
 │   │   ├── ecr.go
 │   │   ├── eks.go
 │   │   ├── iam.go
+│   │   ├── lambda.go
 │   │   ├── route53.go
 │   │   ├── s3.go
 │   │   └── vpc.go
@@ -47,6 +48,7 @@ We adopt a **Clean Architecture** approach to ensure separation of concerns and 
 │   │   ├── ecr.go
 │   │   ├── eks.go
 │   │   ├── iam.go
+│   │   ├── lambda.go
 │   │   ├── profile.go        # AWS profile struct
 │   │   ├── route53.go
 │   │   ├── s3.go
@@ -63,6 +65,7 @@ We adopt a **Clean Architecture** approach to ensure separation of concerns and 
 │           ├── ecr/model.go
 │           ├── eks/model.go
 │           ├── iam/model.go
+│           ├── lambda/model.go
 │           ├── profiles/model.go  # AWS profiles & region switching
 │           ├── route53/model.go
 │           ├── s3/model.go
@@ -75,66 +78,57 @@ We adopt a **Clean Architecture** approach to ensure separation of concerns and 
 └── go.mod
 ```
 
-## 3. Implementation Status
+## 3. Supported Services & Features
 
-### Phase 1: Foundation - COMPLETED
-- [x] Project structure and dependencies
-- [x] AWS authentication (Env vars, Profile, SSO)
-- [x] k9s-style UI layout (header + command palette, no sidebar)
-- [x] Command palette navigation (`:` key)
-- [x] Help overlay (`?` key)
-- [x] Terminal resize handling
+### Core Compute & Networking
+*   **EC2**
+    *   List instances with status (running/stopped/pending/stopping)
+    *   Detail view for selected instance
+    *   Actions: Start, Stop, Reboot, Terminate
+    *   Confirmation modal for destructive actions
+    *   Multi-select batch operations
+*   **VPC**
+    *   List VPCs with CIDR and state
+    *   Drill-down to view subnets per VPC
 
-### Phase 2: Core Compute & Networking - COMPLETED
-- [x] **EC2 Module**:
-  - [x] List instances with status (running/stopped/pending/stopping)
-  - [x] Detail view for selected instance
-  - [x] Actions: Start (`S`), Stop (`s`), Reboot (`R`), Terminate (`T`)
-  - [x] Confirmation modal for destructive actions (stop/terminate)
-  - [x] Multi-select batch operations with `space`
-  - [x] Vim-style navigation (j/k/g/G)
-- [x] **VPC Module**:
-  - [x] List VPCs with CIDR and state
-  - [x] Drill-down to view subnets per VPC
-  - [x] Vim-style navigation
+### Storage & Containers
+*   **S3**
+    *   List buckets
+    *   Browse objects (file explorer style with folder navigation)
+    *   Cross-region bucket support
+    *   Download objects to local (supports recursive folder download)
+    *   Delete objects/folders (supports recursive deletion)
+*   **ECR**
+    *   List repositories with URI
+    *   List image tags within repositories
+*   **EKS**
+    *   List clusters with version and status
+    *   List nodegroups within clusters
 
-### Phase 3: Storage & Containers - COMPLETED
-- [x] **S3 Module**:
-  - [x] List buckets
-  - [x] Browse objects (file explorer style with folder navigation)
-  - [x] Cross-region bucket support (auto-detects bucket region)
-  - [x] Download objects to local with destination path prompt, progress, and cancel
-  - [x] Delete objects/folders with confirmation modal (recursive folder deletion)
-  - [x] Vim-style navigation
-- [x] **ECR Module**:
-  - [x] List repositories with URI
-  - [x] Vim-style navigation
-- [x] **EKS Module**:
-  - [x] List clusters with version and status
-  - [x] Vim-style navigation
+### Security & Management
+*   **IAM**
+    *   List users with ID, ARN, and creation date
+    *   List roles
+*   **Route53**
+    *   List hosted zones with record count
+    *   List records within hosted zones
+*   **CloudWatch**
+    *   View Log Groups and tail logs
 
-### Phase 4: Security & Management - COMPLETED
-- [x] **IAM Module**:
-  - [x] List users with ID, ARN, and creation date
-  - [x] Vim-style navigation
-- [x] **Route53 Module**:
-  - [x] List hosted zones with record count
-  - [x] Vim-style navigation
+### Serverless
+*   **Lambda**
+    *   List functions with runtime, handler, memory, timeout, state
+    *   Detail view for selected function
+    *   View source code (downloads and extracts deployment package)
+    *   Delete function with confirmation modal
+    *   Multi-select batch operations
 
-### Phase 5: Runtime Configuration - COMPLETED
-- [x] **Profiles Module**:
-  - [x] List AWS profiles from ~/.aws/config and ~/.aws/credentials
-  - [x] Display profile type (IAM/SSO) and region
-  - [x] Runtime profile switching
-  - [x] Runtime region switching (tab-based UI)
-  - [x] Auto-refresh all pages on profile/region change
-
-### Future Enhancements (Not Yet Implemented)
-- [x] ECR: List image tags within repositories
-- [x] EKS: List nodegroups within clusters
-- [x] IAM: List roles
-- [x] Route53: List records within hosted zones
-- [x] CloudWatch: View Log Groups and tail logs
+### Runtime Configuration
+*   **Profiles**
+    *   List AWS profiles from standard config files
+    *   Display profile type (IAM/SSO) and region
+    *   Runtime profile and region switching
+    *   Auto-refresh resources on context change
 
 ## 4. Coding Standards
 
@@ -221,6 +215,23 @@ taws uses a k9s-inspired layout:
 
 **Note**: Stop and Terminate actions require typing a confirmation keyword (`stop` or `terminate`) to prevent accidental operations. Multi-select with `space` is supported for batch operations.
 
+#### Lambda Actions (Detail View)
+| Key | Action |
+|-----|--------|
+| `c` | View source code (downloads deployment package) |
+| `D` | Delete function(s) - requires confirmation |
+
+**Note**: Delete action requires typing `delete` to confirm. Multi-select with `space` is supported for batch operations.
+
+#### Lambda Code View
+| Key | Action |
+|-----|--------|
+| `tab`/`h`/`l` | Switch between files |
+| `j`/`k` | Scroll up/down |
+| `g`/`G` | Go to top/bottom |
+| `ctrl+d`/`ctrl+u` | Page down/up |
+| `esc`/`q` | Back to detail view |
+
 #### Profiles Page
 | Key | Action |
 |-----|--------|
@@ -257,6 +268,7 @@ taws uses a k9s-inspired layout:
 | `:ecr` | ECR Repositories |
 | `:iam` | IAM Users |
 | `:route53` | Route53 Hosted Zones |
+| `:lambda` | Lambda Functions |
 | `:profiles` | AWS Profiles |
 | `:home` | Dashboard |
 

@@ -26,6 +26,20 @@ The project follows **Clean Architecture**:
 *   UI: `charmbracelet/bubbletea`, `lipgloss`, `bubbles`
 *   AWS SDK: `aws-sdk-go-v2`
 
+## Supported Services
+
+The application currently supports the following AWS services:
+*   **EC2**: Instances (Start, Stop, Reboot, Terminate).
+*   **VPC**: VPCs.
+*   **S3**: Buckets and Objects (Download, Delete).
+*   **EKS**: Clusters.
+*   **ECR**: Repositories.
+*   **IAM**: Users.
+*   **Route53**: Hosted Zones.
+*   **CloudWatch**: Logs.
+*   **Lambda**: Functions.
+*   **Profiles**: AWS Profile/Region switching.
+
 ## Coding Standards
 
 *   **Error Handling**: Never `panic`. Propagate errors to be handled in the UI.
@@ -38,16 +52,36 @@ The project follows **Clean Architecture**:
 ## UI/UX Context
 
 *   **Layout**: k9s-inspired (Header, Content, Status Bar).
-*   **Navigation**: Vim-style (`j`, `k`, `g`, `G`).
+*   **Navigation**:
+    *   `j`/`down`: Move down.
+    *   `k`/`up`: Move up.
+    *   `g`: Go to top.
+    *   `G`: Go to bottom.
+    *   `backspace`/`esc`: Go back / Close overlay.
+    *   `r`: Refresh current view.
 *   **Search**: Press `/` to filter the current list/table.
-*   **Selection**: Press `space` to toggle row selection; selected rows are highlighted and the selected count is shown in the title.
-*   **S3 Downloads**: In S3 objects view, press `d` to download selected object(s) after entering a destination path; progress is shown and `c` cancels an in-flight download.
+*   **Selection**: Press `space` to toggle row selection.
+*   **Detail/Open**: Press `enter` to view details or enter a folder/resource.
+*   **YAML View**: Press `y` to view resource details in YAML format (available in EC2, S3, etc.).
 *   **Command Palette**: Accessed via `:`, provides navigation to resources.
+*   **Help**: Press `?` to toggle the help overlay.
+
+### Service-Specific Actions
+
+*   **EC2**:
+    *   `s`: Stop instance(s).
+    *   `S`: Start instance(s).
+    *   `R`: Reboot instance(s).
+    *   `T`: Terminate instance(s).
+*   **S3**:
+    *   `d`: Download selected object(s)/folder(s).
+    *   `x`: Delete selected object(s)/folder(s).
 
 ## Build & Verify
 
 *   `make build`: Compile the binary.
 *   `make run`: Run the application.
+*   `make install`: Install the binary to `$GOPATH/bin`.
 *   `make test`: Run unit tests.
 *   `make fmt`: Format code.
 *   `make vet`: Run static analysis.

@@ -29,4 +29,6 @@ type AWSClient interface {
 	Route53() Route53Client
 	// CloudWatch returns the CloudWatch client
 	CloudWatch() CloudWatchClient
+	// Lambda returns the Lambda client
+	Lambda() LambdaClient
 }

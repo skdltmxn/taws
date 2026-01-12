@@ -213,3 +213,7 @@ func (c *Client) Route53() domain.Route53Client {
 func (c *Client) CloudWatch() domain.CloudWatchClient {
 	return NewCloudWatchClient(c.cfg)
 }
+
+func (c *Client) Lambda() domain.LambdaClient {
+	return NewLambdaClient(c.cfg)
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/skdltmxn/taws/internal/ui/pages/ecr"
 	"github.com/skdltmxn/taws/internal/ui/pages/eks"
 	"github.com/skdltmxn/taws/internal/ui/pages/iam"
+	"github.com/skdltmxn/taws/internal/ui/pages/lambda"
 	"github.com/skdltmxn/taws/internal/ui/pages/profiles"
 	"github.com/skdltmxn/taws/internal/ui/pages/route53"
 	"github.com/skdltmxn/taws/internal/ui/pages/s3"
@@ -32,6 +33,7 @@ const (
 	PageIAM
 	PageRoute53
 	PageCloudWatch
+	PageLambda
 	PageProfiles
 )
 
@@ -45,6 +47,7 @@ var pageNames = map[Page]string{
 	PageIAM:        "IAM Users",
 	PageRoute53:    "Route53 Hosted Zones",
 	PageCloudWatch: "CloudWatch Logs",
+	PageLambda:     "Lambda Functions",
 	PageProfiles:   "AWS Profiles",
 }
 
@@ -57,6 +60,7 @@ var pageAliases = map[string]Page{
 	"iam":       PageIAM,
 	"route53":   PageRoute53,
 	"logs":      PageCloudWatch,
+	"lambda":    PageLambda,
 	"profiles":  PageProfiles,
 	"home":      PageDashboard,
 	"dashboard": PageDashboard,
@@ -71,6 +75,7 @@ var commands = []cmdpalette.Command{
 	{Alias: "iam", Name: "IAM Users", Page: int(PageIAM)},
 	{Alias: "route53", Name: "Route53 Hosted Zones", Page: int(PageRoute53)},
 	{Alias: "logs", Name: "CloudWatch Logs", Page: int(PageCloudWatch)},
+	{Alias: "lambda", Name: "Lambda Functions", Page: int(PageLambda)},
 	{Alias: "profiles", Name: "AWS Profiles", Page: int(PageProfiles)},
 	{Alias: "home", Name: "Dashboard", Page: int(PageDashboard)},
 }
@@ -95,6 +100,7 @@ type Model struct {
 	iamModel        iam.Model
 	route53Model    route53.Model
 	cloudwatchModel cloudwatch.Model
+	lambdaModel     lambda.Model
 	profilesModel   profiles.Model
 }
 
@@ -119,6 +125,7 @@ func NewModel(a *app.App) Model {
 		iamModel:        iam.NewModel(a),
 		route53Model:    route53.NewModel(a),
 		cloudwatchModel: cloudwatch.NewModel(a),
+		lambdaModel:     lambda.NewModel(a),
 		profilesModel:   profiles.NewModel(a),
 	}
 }
@@ -133,6 +140,7 @@ func (m Model) Init() tea.Cmd {
 		m.iamModel.Init(),
 		m.route53Model.Init(),
 		m.cloudwatchModel.Init(),
+		m.lambdaModel.Init(),
 		m.profilesModel.Init(),
 	)
 }
@@ -165,6 +173,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.iamModel.Init(),
 			m.route53Model.Init(),
 			m.cloudwatchModel.Init(),
+			m.lambdaModel.Init(),
 		)
 	}
 
@@ -214,6 +223,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.iamModel = m.iamModel.SetSize(contentWidth, contentHeight)
 		m.route53Model = m.route53Model.SetSize(contentWidth, contentHeight)
 		m.cloudwatchModel = m.cloudwatchModel.SetSize(contentWidth, contentHeight)
+		m.lambdaModel = m.lambdaModel.SetSize(contentWidth, contentHeight)
 		m.profilesModel = m.profilesModel.SetSize(contentWidth, contentHeight)
 
 		m.ec2Model = m.ec2Model.SetFullscreenSize(m.width, m.height)
@@ -224,6 +234,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.iamModel = m.iamModel.SetFullscreenSize(m.width, m.height)
 		m.route53Model = m.route53Model.SetFullscreenSize(m.width, m.height)
 		m.cloudwatchModel = m.cloudwatchModel.SetFullscreenSize(m.width, m.height)
+		m.lambdaModel = m.lambdaModel.SetFullscreenSize(m.width, m.height)
 	}
 
 	switch m.currentPage {
@@ -259,6 +270,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cwCmd tea.Cmd
 		m.cloudwatchModel, cwCmd = m.cloudwatchModel.Update(msg)
 		cmds = append(cmds, cwCmd)
+	case PageLambda:
+		var lambdaCmd tea.Cmd
+		m.lambdaModel, lambdaCmd = m.lambdaModel.Update(msg)
+		cmds = append(cmds, lambdaCmd)
 	case PageProfiles:
 		var profilesCmd tea.Cmd
 		m.profilesModel, profilesCmd = m.profilesModel.Update(msg)
@@ -286,6 +301,8 @@ func (m Model) getPageInitCmd() tea.Cmd {
 		return m.route53Model.Init()
 	case PageCloudWatch:
 		return m.cloudwatchModel.Init()
+	case PageLambda:
+		return m.lambdaModel.Init()
 	case PageProfiles:
 		return m.profilesModel.Init()
 	}
@@ -380,6 +397,10 @@ func (m Model) getFullscreenView() string {
 	case PageCloudWatch:
 		if m.cloudwatchModel.IsFullscreen() {
 			return m.cloudwatchModel.FullscreenView()
+		}
+	case PageLambda:
+		if m.lambdaModel.IsFullscreen() {
+			return m.lambdaModel.FullscreenView()
 		}
 	}
 	return ""
@@ -541,6 +562,8 @@ func (m Model) renderContent() string {
 		pageContent = m.route53Model.View()
 	case PageCloudWatch:
 		pageContent = m.cloudwatchModel.View()
+	case PageLambda:
+		pageContent = m.lambdaModel.View()
 	case PageProfiles:
 		pageContent = m.profilesModel.View()
 	default:
@@ -596,6 +619,7 @@ func (m Model) renderDashboard() string {
 		resourceLine("iam", "IAM Users"),
 		resourceLine("route53", "Route53 Hosted Zones"),
 		resourceLine("logs", "CloudWatch Logs"),
+		resourceLine("lambda", "Lambda Functions"),
 		resourceLine("profiles", "AWS Profiles"),
 	)
 

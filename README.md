@@ -4,7 +4,7 @@
 
 ## Key Features
 
-*   **Unified Interface**: Navigate EC2, S3, EKS, ECR, IAM, Route53, VPC, and CloudWatch resources in a single TUI.
+*   **Unified Interface**: Navigate EC2, S3, EKS, ECR, IAM, Route53, VPC, Lambda, and CloudWatch resources in a single TUI.
 *   **Vim-Style Navigation**: Use `j`, `k`, `g`, `G`, `/` for efficient browsing.
 *   **Multi-Account & Region Support**: Switch AWS profiles (including SSO) and regions at runtime without restarting.
 *   **Resource Management**:
@@ -13,6 +13,7 @@
     *   **Containers**: Inspect EKS clusters/nodegroups and ECR repositories/images.
     *   **Networking**: View VPCs, subnets, and Route53 hosted zones/records.
     *   **IAM**: List users and roles.
+    *   **Lambda**: List functions, view details, view source code, and delete functions.
     *   **CloudWatch**: Browse log groups and tail log events in real-time.
 *   **Command Palette**: Quickly jump to resources using `:`.
 *   **Theming**: Custom color themes via JSON configuration.
@@ -79,6 +80,10 @@ If your SSO session is expired, `taws` will attempt to refresh it automatically.
 ### Resource Specific
 *   **EC2**: `S` (Start), `s` (Stop), `R` (Reboot), `T` (Terminate)
     *   Stop and Terminate require typing confirmation keyword
+    *   Multi-select supported for batch operations
+*   **Lambda**: `c` (View source code), `D` (Delete function)
+    *   Code view downloads and extracts the deployment package
+    *   Delete requires typing confirmation keyword (`delete`)
     *   Multi-select supported for batch operations
 *   **S3**: `d` (Download Object), `x` (Delete Object/Folder), `c` (Cancel Download)
     *   Delete requires typing confirmation keyword (`delete`)
